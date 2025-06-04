@@ -1,5 +1,6 @@
-// ControlParser.js
+// ControlParse.js - v1.1
 // Contains parsers for all Control tags in SWF
+// Created by notsilverhoft on 2025-06-04 08:37:46
 
 // End (0) Tag Parser
 // Tag indicates the end of the SWF file
@@ -14,7 +15,8 @@ function parseEndTag(tagData, offset, tagLength) {
     };
     
     // Log to terminal
-    console.log("[ControlParser] Parsed End tag");
+    const terminal = document.getElementById('terminalOutput');
+    terminal.textContent += "\n[ControlParser] Parsed End tag";
     
     return result;
 }
@@ -32,7 +34,8 @@ function parseShowFrameTag(tagData, offset, tagLength) {
     };
     
     // Log to terminal
-    console.log("[ControlParser] Parsed ShowFrame tag");
+    const terminal = document.getElementById('terminalOutput');
+    terminal.textContent += "\n[ControlParser] Parsed ShowFrame tag";
     
     return result;
 }
@@ -58,7 +61,8 @@ function parseFrameLabelTag(tagData, offset, tagLength) {
     };
     
     // Log to terminal
-    console.log(`[ControlParser] Parsed FrameLabel tag: "${name}"`);
+    const terminal = document.getElementById('terminalOutput');
+    terminal.textContent += `\n[ControlParser] Parsed FrameLabel tag: "${name}"`;
     
     return result;
 }
@@ -77,7 +81,8 @@ function parseProtectTag(tagData, offset, tagLength) {
     };
     
     // Log to terminal
-    console.log(`[ControlParser] Parsed Protect tag: ${hasPassword ? "with password" : "no password"}`);
+    const terminal = document.getElementById('terminalOutput');
+    terminal.textContent += `\n[ControlParser] Parsed Protect tag: ${hasPassword ? "with password" : "no password"}`;
     
     return result;
 }
@@ -98,7 +103,8 @@ function parseSetTabIndexTag(tagData, offset, tagLength) {
     };
     
     // Log to terminal
-    console.log(`[ControlParser] Parsed SetTabIndex tag: depth=${depth}, tabIndex=${tabIndex}`);
+    const terminal = document.getElementById('terminalOutput');
+    terminal.textContent += `\n[ControlParser] Parsed SetTabIndex tag: depth=${depth}, tabIndex=${tabIndex}`;
     
     return result;
 }
@@ -134,7 +140,8 @@ function parseSymbolClassTag(tagData, offset, tagLength) {
     };
     
     // Log to terminal
-    console.log(`[ControlParser] Parsed SymbolClass tag: ${count} symbols defined`);
+    const terminal = document.getElementById('terminalOutput');
+    terminal.textContent += `\n[ControlParser] Parsed SymbolClass tag: ${count} symbols defined`;
     
     return result;
 }
@@ -156,7 +163,8 @@ function parseControlTag(tagData, offset, tagType, tagLength) {
         case 76: // SymbolClass
             return parseSymbolClassTag(tagData, offset, tagLength);
         default:
-            console.log(`[ControlParser] Unknown control tag type: ${tagType}`);
+            const terminal = document.getElementById('terminalOutput');
+            terminal.textContent += `\n[ControlParser] Unknown control tag type: ${tagType}`;
             return {
                 type: "UnknownControl",
                 tagType: tagType,
