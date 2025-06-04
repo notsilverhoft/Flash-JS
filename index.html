@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>File Extension Viewer</title>
+  <style>
+    body {
+      font-family: monospace;
+      background-color: #1e1e1e;
+      color: #d4d4d4;
+      padding: 20px;
+      max-width: 900px;
+      margin: 0 auto;
+    }
+
+    .terminal {
+      background-color: #0c0c0c;
+      border: 1px solid #333;
+      border-radius: 5px;
+      padding: 15px;
+      width: 100%;
+      max-width: 100%;
+      height: 400px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      color: #cccccc;
+      font-family: 'Courier New', Courier, monospace;
+      margin-top: 20px;
+    }
+
+    .terminal-header {
+      background-color: #333333;
+      padding: 8px 12px;
+      border-top-left-radius: 5px;
+      border-top-right-radius: 5px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-top: 20px;
+    }
+
+    .terminal-title {
+      margin: 0;
+      color: #ffffff;
+      font-size: 16px;
+    }
+
+    .upload-container {
+      margin: 20px 0;
+      display: flex;
+      align-items: center;
+    }
+
+    .button {
+      background-color: #0e639c;
+      color: white;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-family: monospace;
+      margin-right: 10px;
+    }
+
+    .button:hover {
+      background-color: #1177bb;
+    }
+
+    input[type="file"] {
+      display: none;
+    }
+    
+    .file-name {
+      margin-left: 10px;
+      color: #569cd6;
+    }
+    
+    .analyzer-button {
+      background-color: #6a329f;
+      margin-left: 20px;
+    }
+    
+    .analyzer-button:hover {
+      background-color: #7d3cbc;
+    }
+
+    .toggle-button {
+      background-color: #d4d4d4;
+      color: #1e1e1e;
+      margin-left: 20px;
+    }
+
+    .toggle-button:hover {
+      background-color: #f0f0f0;
+    }
+  </style>
+</head>
+<body>
+  <h1>File Extension Viewer</h1>
+  
+  <div class="upload-container">
+    <button class="button" id="uploadButton">SWF Here:</button>
+    <span class="file-name" id="fileName"></span>
+    <input type="file" id="SWF-Input" name="SWF-Input">
+    <button class="button toggle-button" id="toggleButton">Show Important Tags</button>
+  </div>
+
+  <div class="terminal-header">
+    <h3 class="terminal-title">Terminal Output</h3>
+  </div>
+  <div class="terminal" id="terminalOutput">Waiting for file input...</div>
+
+  <script>
+    const terminal = document.getElementById('terminalOutput');
+    const uploadButton = document.getElementById('uploadButton');
+    const fileInput = document.getElementById('SWF-Input');
+    const fileNameDisplay = document.getElementById('fileName');
+    const toggleButton = document.getElementById('toggleButton');
+
+    // Initialize global variable
+    window.showAllTags = false;
+
+    // Add button functionality
+    uploadButton.addEventListener('click', function() {
+      fileInput.click();
+    });
+
+    // Toggle button functionality
+    toggleButton.addEventListener('click', function() {
+      window.showAllTags = !window.showAllTags;
+      toggleButton.textContent = window.showAllTags ? 'Show Important Tags' : 'Show All Tags';
+      
+      // Re-parse if file is loaded
+      const fileInput = document.getElementById('SWF-Input');
+      if (fileInput.files[0]) {
+        const file = fileInput.files[0];
+        file.arrayBuffer().then(arrayBuffer => {
+          const parsedInfo = parseSWFSignature(arrayBuffer);
+          const tagInfo = parseSWFTags(arrayBuffer);
+          terminal.textContent = parsedInfo + '\n\n' + tagInfo;
+        });
+      }
+    });
+
+    document.getElementById('SWF-Input').addEventListener('change', async function(event) {
+      const file = event.target.files[0];
+      if (!file) {
+        terminal.textContent = 'No file selected.';
+        return;
+      }
+
+      // Display file name
+      fileNameDisplay.textContent = file.name;
+
+      const fileName = file.name;
+      const extension = fileName.split('.').pop().toLowerCase();
+
+      if (extension !== 'swf') {
+        terminal.textContent = 'Error: File is not in SWF file format. Please use only SWF files.';
+        window.start = false;
+        return;
+      }
+
+      terminal.textContent = 'Determined that file is in SWF format...\nReading file...';
+      window.start = true;
+
+      try {
+        const arrayBuffer = await file.arrayBuffer();
+        const parsedInfo = parseSWFSignature(arrayBuffer);
+        const tagInfo = parseSWFTags(arrayBuffer);
+        terminal.textContent = parsedInfo + '\n\n' + tagInfo;
+      } catch (err) {
+        terminal.textContent = 'Error reading SWF file: ' + err.message;
+      }
+    });
+  </script>
+
+  <script src="https://cdn.jsdelivr.net/npm/pako@2.0.4/dist/pako.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/gh/LZMA-JS/LZMA-JS@master/src/lzma-d.js"></script>
+  <script src="Parse.js"></script>
+  <script src="TagParse.js"></script>
+</body>
+</html>
