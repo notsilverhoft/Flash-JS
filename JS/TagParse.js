@@ -1,5 +1,5 @@
 /* 
- * SWF Tag Parser - v2.2
+ * SWF Tag Parser - v2.3
  * Supports:
  * - Tag header parsing (type and length)
  * - Short and long format tag headers
@@ -83,7 +83,7 @@ const tagNames = {
 
 // Important tags that should always be shown
 const importantTags = new Set([
-  0, 1, 4, 5, 9, 12, 24, 26, 28, 39, 43, 56, 57, 59, 69, 76, 77, 82, 86
+  0, 1, 2, 4, 5, 9, 12, 22, 24, 26, 28, 32, 39, 43, 56, 57, 59, 69, 76, 77, 82, 83, 86
 ]);
 
 // Control tags that can be parsed for content
@@ -99,6 +99,11 @@ const displayTags = new Set([
 // Asset tags that can be parsed for content
 const assetTags = new Set([
   12, 56, 57, 59, 71, 76, 82
+]);
+
+// Shape tags that can be parsed for content
+const shapeTags = new Set([
+  2, 22, 32, 83
 ]);
 
 function parseSWFTags(arrayBuffer) {
@@ -232,6 +237,7 @@ function parseTagData(tagData) {
   let controlParser = null;
   let displayParser = null;
   let assetParser = null;
+  let shapeParser = null;
   
   if (window.showContentParsing) {
     if (typeof ControlParsers !== 'undefined') {
@@ -242,6 +248,9 @@ function parseTagData(tagData) {
     }
     if (typeof AssetParsers !== 'undefined') {
       assetParser = new AssetParsers();
+    }
+    if (typeof ShapeParsers !== 'undefined') {
+      shapeParser = new ShapeParsers();
     }
   }
   
@@ -280,7 +289,8 @@ function parseTagData(tagData) {
     const isControlTag = controlTags.has(tagHeader.type);
     const isDisplayTag = displayTags.has(tagHeader.type);
     const isAssetTag = assetTags.has(tagHeader.type);
-    const canBeParsed = isControlTag || isDisplayTag || isAssetTag;
+    const isShapeTag = shapeTags.has(tagHeader.type);
+    const canBeParsed = isControlTag || isDisplayTag || isAssetTag || isShapeTag;
     
     if (isUnknown) {
       unknownTags.add(tagHeader.type);
@@ -302,6 +312,8 @@ function parseTagData(tagData) {
             parsedContent = displayParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
           } else if (assetParser && isAssetTag) {
             parsedContent = assetParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
+          } else if (shapeParser && isShapeTag) {
+            parsedContent = shapeParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
           }
           
           if (parsedContent) {
@@ -366,7 +378,6 @@ function parseTagData(tagData) {
         
         // Add some hints about what type of parser this might need
         const tagTypeHints = {
-          2: "Shape definition parser needed",
           6: "Bitmap definition parser needed", 
           7: "Button definition parser needed",
           10: "Font definition parser needed",
@@ -421,7 +432,7 @@ function parseTagData(tagData) {
     
     if (parsedContentTags === 0) {
       output.push("\nNo tags could be parsed for content.");
-      output.push("Supported tag types: Control, Display, and Asset tags");
+      output.push("Supported tag types: Control, Display, Asset, and Shape tags");
     }
     
   } else if (window.showUnparsedOnly) {
