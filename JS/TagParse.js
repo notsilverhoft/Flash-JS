@@ -1,12 +1,12 @@
 /* 
- * SWF Tag Parser - v2.0
+ * SWF Tag Parser - v2.1
  * Supports:
  * - Tag header parsing (type and length)
  * - Short and long format tag headers
  * - FWS, CWS, and ZWS formats
  * - Tag names and unknown tag detection
  * - Filter for important tags only
- * - Light Content parsing integration
+ * - Content parsing integration (Control + Display tags)
  */
 
 // Global variables for tag filtering
@@ -81,12 +81,17 @@ const tagNames = {
 
 // Important tags that should always be shown
 const importantTags = new Set([
-  0, 1, 9, 12, 24, 39, 43, 56, 57, 59, 69, 76, 77, 82, 86
+  0, 1, 4, 5, 9, 12, 24, 26, 28, 39, 43, 56, 57, 59, 69, 76, 77, 82, 86
 ]);
 
 // Control tags that can be parsed for content
 const controlTags = new Set([
   0, 1, 9, 24, 43, 69, 77, 86
+]);
+
+// Display tags that can be parsed for content
+const displayTags = new Set([
+  4, 5, 26, 28
 ]);
 
 function parseSWFTags(arrayBuffer) {
@@ -216,10 +221,17 @@ function parseTagData(tagData) {
   const output = [];
   const unknownTags = new Set();
   
-  // Initialize content parser if needed
+  // Initialize content parsers if needed
   let controlParser = null;
-  if (window.showContentParsing && typeof ControlParsers !== 'undefined') {
-    controlParser = new ControlParsers();
+  let displayParser = null;
+  
+  if (window.showContentParsing) {
+    if (typeof ControlParsers !== 'undefined') {
+      controlParser = new ControlParsers();
+    }
+    if (typeof DisplayParsers !== 'undefined') {
+      displayParser = new DisplayParsers();
+    }
   }
   
   output.push(`Tag Headers (${window.showAllTags ? 'All' : 'Important'} Tags${window.showContentParsing ? ' with Content' : ''}):`);
@@ -242,6 +254,7 @@ function parseTagData(tagData) {
     const isUnknown = !tagNames[tagHeader.type];
     const isImportant = importantTags.has(tagHeader.type);
     const isControlTag = controlTags.has(tagHeader.type);
+    const isDisplayTag = displayTags.has(tagHeader.type);
     
     if (isUnknown) {
       unknownTags.add(tagHeader.type);
@@ -258,12 +271,21 @@ function parseTagData(tagData) {
       output.push(tagDisplay);
       
       // Add content parsing if enabled and parser available
-      if (window.showContentParsing && controlParser && isControlTag && tagHeader.length >= 0) {
+      if (window.showContentParsing && tagHeader.length >= 0) {
         try {
           const contentOffset = offset + tagHeader.headerSize;
-          const parsedContent = controlParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
-          const formattedContent = controlParser.formatTagOutput(parsedContent);
-          output.push(formattedContent);
+          let parsedContent = null;
+          
+          if (controlParser && isControlTag) {
+            parsedContent = controlParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
+            const formattedContent = controlParser.formatTagOutput(parsedContent);
+            output.push(formattedContent);
+          } else if (displayParser && isDisplayTag) {
+            parsedContent = displayParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
+            const formattedContent = displayParser.formatTagOutput(parsedContent);
+            output.push(formattedContent);
+          }
+          
         } catch (contentError) {
           output.push(`  └─ Content parsing error: ${contentError.message}`);
         }
@@ -303,10 +325,14 @@ function parseTagData(tagData) {
   if (window.showContentParsing) {
     output.push("------------------------------");
     output.push("Content Parsing: Enabled");
-    if (!controlParser) {
-      output.push("Note: ControlParsers not available");
+    const availableParsers = [];
+    if (controlParser) availableParsers.push("Control");
+    if (displayParser) availableParsers.push("Display");
+    
+    if (availableParsers.length > 0) {
+      output.push(`Available parsers: ${availableParsers.join(", ")}`);
     } else {
-      output.push("Note: Content parsing active for control tags");
+      output.push("Note: No content parsers available");
     }
   }
   
