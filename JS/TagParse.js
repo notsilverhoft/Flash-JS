@@ -7,11 +7,13 @@
  * - Tag names and unknown tag detection
  * - Filter for important tags only
  * - Content parsing mode (shows ONLY parsed content)
+ * - Unparsed content mode (shows ONLY tags that can't be parsed)
  */
 
 // Global variables for tag filtering
 window.showAllTags = false;
 window.showContentParsing = false;
+window.showUnparsedOnly = false;
 
 // Tag name mapping
 const tagNames = {
@@ -234,10 +236,13 @@ function parseTagData(tagData) {
     }
   }
   
-  // Different output format based on content parsing mode
+  // Different output format based on mode
   if (window.showContentParsing) {
     output.push("Parsed Tag Content:");
     output.push("==============================");
+  } else if (window.showUnparsedOnly) {
+    output.push("Unparsed Tags (Need Parser Development):");
+    output.push("========================================");
   } else {
     output.push(`Tag Headers (${window.showAllTags ? 'All' : 'Important'} Tags):`);
     output.push("------------------------------");
@@ -248,12 +253,13 @@ function parseTagData(tagData) {
   let tagIndex = 0;
   let displayedTags = 0;
   let parsedContentTags = 0;
+  let unparsedContentTags = 0;
   
   while (offset < tagData.length) {
     const tagHeader = parseTagHeader(tagData, offset);
     
     if (!tagHeader) {
-      if (!window.showContentParsing) {
+      if (!window.showContentParsing && !window.showUnparsedOnly) {
         output.push(`Error parsing tag at offset ${offset}`);
       }
       break;
@@ -270,7 +276,7 @@ function parseTagData(tagData) {
       unknownTags.add(tagHeader.type);
     }
     
-    // Determine if we should display this tag
+    // Determine if we should display this tag based on mode
     const shouldDisplay = window.showAllTags || isImportant || isUnknown;
     
     if (window.showContentParsing) {
@@ -336,6 +342,38 @@ function parseTagData(tagData) {
         }
       }
       
+    } else if (window.showUnparsedOnly) {
+      // UNPARSED CONTENT MODE - Only show tags that CANNOT be parsed
+      if (!canBeParsed && shouldDisplay) {
+        let tagDisplay = `Tag ${tagIndex}: Type ${tagHeader.type} (${tagName}), Length ${tagHeader.length} bytes`;
+        if (isUnknown) {
+          tagDisplay += " [UNKNOWN - No parser available]";
+        } else {
+          tagDisplay += " [NEEDS PARSER]";
+        }
+        
+        // Add some hints about what type of parser this might need
+        const tagTypeHints = {
+          2: "Shape definition parser needed",
+          6: "Bitmap definition parser needed", 
+          7: "Button definition parser needed",
+          10: "Font definition parser needed",
+          11: "Text definition parser needed",
+          12: "ActionScript parser needed",
+          39: "Sprite definition parser needed",
+          56: "Asset export parser needed",
+          57: "Asset import parser needed",
+          82: "ABC (ActionScript 3) parser needed"
+        };
+        
+        if (tagTypeHints[tagHeader.type]) {
+          tagDisplay += ` - ${tagTypeHints[tagHeader.type]}`;
+        }
+        
+        output.push(tagDisplay);
+        unparsedContentTags++;
+      }
+      
     } else {
       // NORMAL TAG HEADER MODE
       if (shouldDisplay) {
@@ -350,7 +388,7 @@ function parseTagData(tagData) {
     
     // If this is the End tag (type 0), stop parsing
     if (tagHeader.type === 0) {
-      if (!window.showContentParsing) {
+      if (!window.showContentParsing && !window.showUnparsedOnly) {
         output.push("End tag reached");
       }
       break;
@@ -376,6 +414,19 @@ function parseTagData(tagData) {
     if (parsedContentTags === 0) {
       output.push("\nNo tags could be parsed for content.");
       output.push("Supported tag types: Control tags (SetBackgroundColor, FrameLabel, etc.) and Display tags (PlaceObject, RemoveObject, etc.)");
+    }
+    
+  } else if (window.showUnparsedOnly) {
+    output.push(`\n========================================`);
+    output.push(`Total tags scanned: ${tagIndex}`);
+    output.push(`Unparsed tags found: ${unparsedContentTags}`);
+    
+    if (unparsedContentTags === 0) {
+      output.push("\nAll displayed tags have parsers available!");
+      output.push("This means we can parse the content of all important tags in this file.");
+    } else {
+      output.push(`\nThese ${unparsedContentTags} tags need parser development to extract their content.`);
+      output.push("Priority should be given to frequently occurring and important tag types.");
     }
     
   } else {
