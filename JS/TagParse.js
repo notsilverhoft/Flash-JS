@@ -1,5 +1,5 @@
 /* 
- * SWF Tag Parser - v2.4
+ * SWF Tag Parser - v2.5
  * Supports:
  * - Tag header parsing (type and length)
  * - Short and long format tag headers
@@ -9,6 +9,7 @@
  * - Content parsing mode (shows ONLY parsed content)
  * - Unparsed content mode (shows ONLY tags that can't be parsed)
  * - Error-only mode (shows ONLY tags with parsing errors)
+ * - FIXED: Stack overflow in content formatting
  */
 
 // Global variables for tag filtering
@@ -106,6 +107,11 @@ const assetTags = new Set([
 // Shape tags that can be parsed for content
 const shapeTags = new Set([
   2, 22, 32, 83
+]);
+
+// Sprite tags that can be parsed for content
+const spriteTags = new Set([
+  39
 ]);
 
 function parseSWFTags(arrayBuffer) {
@@ -240,6 +246,7 @@ function parseTagData(tagData) {
   let displayParser = null;
   let assetParser = null;
   let shapeParser = null;
+  let spriteParser = null;
   
   if (window.showContentParsing || window.showErrorsOnly) {
     if (typeof ControlParsers !== 'undefined') {
@@ -253,6 +260,9 @@ function parseTagData(tagData) {
     }
     if (typeof ShapeParsers !== 'undefined') {
       shapeParser = new ShapeParsers();
+    }
+    if (typeof SpriteParsers !== 'undefined') {
+      spriteParser = new SpriteParsers();
     }
   }
   
@@ -296,7 +306,8 @@ function parseTagData(tagData) {
     const isDisplayTag = displayTags.has(tagHeader.type);
     const isAssetTag = assetTags.has(tagHeader.type);
     const isShapeTag = shapeTags.has(tagHeader.type);
-    const canBeParsed = isControlTag || isDisplayTag || isAssetTag || isShapeTag;
+    const isSpriteTag = spriteTags.has(tagHeader.type);
+    const canBeParsed = isControlTag || isDisplayTag || isAssetTag || isShapeTag || isSpriteTag;
     
     if (isUnknown) {
       unknownTags.add(tagHeader.type);
@@ -320,6 +331,8 @@ function parseTagData(tagData) {
             parsedContent = assetParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
           } else if (shapeParser && isShapeTag) {
             parsedContent = shapeParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
+          } else if (spriteParser && isSpriteTag) {
+            parsedContent = spriteParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
           }
           
           if (parsedContent) {
@@ -334,33 +347,66 @@ function parseTagData(tagData) {
             if (parsedContent.data && Object.keys(parsedContent.data).length > 0) {
               output.push("Content:");
               
-              // Format the content data nicely
-              const formatContentData = (data, indent = "  ") => {
+              // FIXED: Safe content formatting with stack overflow protection
+              const formatContentDataSafe = (data, indent = "  ", depth = 0, visited = new WeakSet()) => {
+                // Prevent infinite recursion
+                if (depth > 10) {
+                  output.push(`${indent}[Max depth reached]`);
+                  return;
+                }
+                
+                // Prevent circular references
+                if (typeof data === 'object' && data !== null) {
+                  if (visited.has(data)) {
+                    output.push(`${indent}[Circular reference detected]`);
+                    return;
+                  }
+                  visited.add(data);
+                }
+                
                 for (const [key, value] of Object.entries(data)) {
                   if (value === null || value === undefined) {
                     output.push(`${indent}${key}: null`);
                   } else if (typeof value === 'object' && !Array.isArray(value)) {
                     output.push(`${indent}${key}:`);
-                    formatContentData(value, indent + "  ");
+                    formatContentDataSafe(value, indent + "  ", depth + 1, visited);
                   } else if (Array.isArray(value)) {
                     output.push(`${indent}${key}: [${value.length} items]`);
-                    if (value.length <= 10) {
+                    if (value.length <= 5) {
                       value.forEach((item, index) => {
-                        output.push(`${indent}  [${index}]: ${JSON.stringify(item)}`);
+                        if (typeof item === 'object' && item !== null) {
+                          output.push(`${indent}  [${index}]:`);
+                          formatContentDataSafe(item, indent + "    ", depth + 1, visited);
+                        } else {
+                          output.push(`${indent}  [${index}]: ${String(item).substring(0, 100)}`);
+                        }
                       });
                     } else {
-                      output.push(`${indent}  (showing first 5 of ${value.length} items)`);
-                      for (let i = 0; i < 5; i++) {
-                        output.push(`${indent}  [${i}]: ${JSON.stringify(value[i])}`);
+                      output.push(`${indent}  (showing first 3 of ${value.length} items)`);
+                      for (let i = 0; i < 3; i++) {
+                        if (typeof value[i] === 'object' && value[i] !== null) {
+                          output.push(`${indent}  [${i}]:`);
+                          formatContentDataSafe(value[i], indent + "    ", depth + 1, visited);
+                        } else {
+                          output.push(`${indent}  [${i}]: ${String(value[i]).substring(0, 100)}`);
+                        }
                       }
                     }
                   } else {
-                    output.push(`${indent}${key}: ${value}`);
+                    // Truncate very long strings
+                    const stringValue = String(value);
+                    const truncated = stringValue.length > 200 ? stringValue.substring(0, 200) + "..." : stringValue;
+                    output.push(`${indent}${key}: ${truncated}`);
                   }
+                }
+                
+                // Remove from visited set when done (for reuse in sibling branches)
+                if (typeof data === 'object' && data !== null) {
+                  visited.delete(data);
                 }
               };
               
-              formatContentData(parsedContent.data);
+              formatContentDataSafe(parsedContent.data);
             }
             
             parsedContentTags++;
@@ -369,6 +415,10 @@ function parseTagData(tagData) {
         } catch (contentError) {
           output.push(`\nTag ${tagIndex}: ${tagName} (Parse Error)`);
           output.push(`ERROR: ${contentError.message}`);
+          // Add stack trace for debugging
+          if (contentError.stack) {
+            output.push(`Stack trace: ${contentError.stack.substring(0, 300)}...`);
+          }
         }
       }
       
@@ -387,8 +437,7 @@ function parseTagData(tagData) {
           6: "Bitmap definition parser needed", 
           7: "Button definition parser needed",
           10: "Font definition parser needed",
-          11: "Text definition parser needed",
-          39: "Sprite definition parser needed"
+          11: "Text definition parser needed"
         };
         
         if (tagTypeHints[tagHeader.type]) {
@@ -415,6 +464,8 @@ function parseTagData(tagData) {
             parsedContent = assetParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
           } else if (shapeParser && isShapeTag) {
             parsedContent = shapeParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
+          } else if (spriteParser && isSpriteTag) {
+            parsedContent = spriteParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
           }
           
           // Check if the parsed content has an error
@@ -422,19 +473,21 @@ function parseTagData(tagData) {
             hasError = true;
           }
           
-          // Also check for errors in nested data
+          // Also check for errors in nested data (safely)
           if (parsedContent && parsedContent.data) {
-            const checkForErrors = (obj) => {
+            const checkForErrorsSafe = (obj, depth = 0) => {
+              if (depth > 10) return false; // Prevent deep recursion
+              
               if (typeof obj === 'object' && obj !== null) {
                 if (obj.error || obj.parseError) return true;
                 for (const value of Object.values(obj)) {
-                  if (checkForErrors(value)) return true;
+                  if (checkForErrorsSafe(value, depth + 1)) return true;
                 }
               }
               return false;
             };
             
-            if (checkForErrors(parsedContent.data)) {
+            if (checkForErrorsSafe(parsedContent.data)) {
               hasError = true;
             }
           }
@@ -445,22 +498,24 @@ function parseTagData(tagData) {
             output.push(`Length: ${tagHeader.length} bytes`);
             output.push(`PARSER ERROR: ${parsedContent.error}`);
             
-            // Show problematic data sections
+            // Show problematic data sections (safely)
             if (parsedContent.data) {
-              const showErrorDetails = (obj, path = "") => {
+              const showErrorDetailsSafe = (obj, path = "", depth = 0) => {
+                if (depth > 5) return; // Limit depth for error display
+                
                 if (typeof obj === 'object' && obj !== null) {
                   for (const [key, value] of Object.entries(obj)) {
                     const currentPath = path ? `${path}.${key}` : key;
                     if (value && (value.error || value.parseError)) {
                       output.push(`  └─ Error in ${currentPath}: ${value.error || value.parseError}`);
                     } else if (typeof value === 'object') {
-                      showErrorDetails(value, currentPath);
+                      showErrorDetailsSafe(value, currentPath, depth + 1);
                     }
                   }
                 }
               };
               
-              showErrorDetails(parsedContent.data);
+              showErrorDetailsSafe(parsedContent.data);
             }
             
             errorContentTags++;
@@ -514,7 +569,7 @@ function parseTagData(tagData) {
     
     if (parsedContentTags === 0) {
       output.push("\nNo tags could be parsed for content.");
-      output.push("Supported tag types: Control, Display, Asset, and Shape tags");
+      output.push("Supported tag types: Control, Display, Asset, Shape, and Sprite tags");
     }
     
   } else if (window.showUnparsedOnly) {
