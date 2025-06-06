@@ -1,5 +1,5 @@
 /* 
- * SWF Tag Parser - v2.3
+ * SWF Tag Parser - v2.4
  * Supports:
  * - Tag header parsing (type and length)
  * - Short and long format tag headers
@@ -8,12 +8,14 @@
  * - Filter for important tags only
  * - Content parsing mode (shows ONLY parsed content)
  * - Unparsed content mode (shows ONLY tags that can't be parsed)
+ * - Error-only mode (shows ONLY tags with parsing errors)
  */
 
 // Global variables for tag filtering
 window.showAllTags = false;
 window.showContentParsing = false;
 window.showUnparsedOnly = false;
+window.showErrorsOnly = false;
 
 // Tag name mapping
 const tagNames = {
@@ -239,7 +241,7 @@ function parseTagData(tagData) {
   let assetParser = null;
   let shapeParser = null;
   
-  if (window.showContentParsing) {
+  if (window.showContentParsing || window.showErrorsOnly) {
     if (typeof ControlParsers !== 'undefined') {
       controlParser = new ControlParsers();
     }
@@ -261,6 +263,9 @@ function parseTagData(tagData) {
   } else if (window.showUnparsedOnly) {
     output.push("Unparsed Tags (Need Parser Development):");
     output.push("========================================");
+  } else if (window.showErrorsOnly) {
+    output.push("Parser Errors (Tags with Parsing Issues):");
+    output.push("==========================================");
   } else {
     output.push(`Tag Headers (${window.showAllTags ? 'All' : 'Important'} Tags):`);
     output.push("------------------------------");
@@ -272,12 +277,13 @@ function parseTagData(tagData) {
   let displayedTags = 0;
   let parsedContentTags = 0;
   let unparsedContentTags = 0;
+  let errorContentTags = 0;
   
   while (offset < tagData.length) {
     const tagHeader = parseTagHeader(tagData, offset);
     
     if (!tagHeader) {
-      if (!window.showContentParsing && !window.showUnparsedOnly) {
+      if (!window.showContentParsing && !window.showUnparsedOnly && !window.showErrorsOnly) {
         output.push(`Error parsing tag at offset ${offset}`);
       }
       break;
@@ -393,6 +399,82 @@ function parseTagData(tagData) {
         unparsedContentTags++;
       }
       
+    } else if (window.showErrorsOnly) {
+      // ERROR-ONLY MODE - Only show tags that have parsers but encountered errors
+      if (canBeParsed && tagHeader.length >= 0) {
+        try {
+          const contentOffset = offset + tagHeader.headerSize;
+          let parsedContent = null;
+          let hasError = false;
+          
+          if (controlParser && isControlTag) {
+            parsedContent = controlParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
+          } else if (displayParser && isDisplayTag) {
+            parsedContent = displayParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
+          } else if (assetParser && isAssetTag) {
+            parsedContent = assetParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
+          } else if (shapeParser && isShapeTag) {
+            parsedContent = shapeParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
+          }
+          
+          // Check if the parsed content has an error
+          if (parsedContent && parsedContent.error) {
+            hasError = true;
+          }
+          
+          // Also check for errors in nested data
+          if (parsedContent && parsedContent.data) {
+            const checkForErrors = (obj) => {
+              if (typeof obj === 'object' && obj !== null) {
+                if (obj.error || obj.parseError) return true;
+                for (const value of Object.values(obj)) {
+                  if (checkForErrors(value)) return true;
+                }
+              }
+              return false;
+            };
+            
+            if (checkForErrors(parsedContent.data)) {
+              hasError = true;
+            }
+          }
+          
+          if (hasError) {
+            output.push(`\nTag ${tagIndex}: ${parsedContent.tagType || tagName}`);
+            output.push(`Description: ${parsedContent.description || 'Tag with parsing errors'}`);
+            output.push(`Length: ${tagHeader.length} bytes`);
+            output.push(`PARSER ERROR: ${parsedContent.error}`);
+            
+            // Show problematic data sections
+            if (parsedContent.data) {
+              const showErrorDetails = (obj, path = "") => {
+                if (typeof obj === 'object' && obj !== null) {
+                  for (const [key, value] of Object.entries(obj)) {
+                    const currentPath = path ? `${path}.${key}` : key;
+                    if (value && (value.error || value.parseError)) {
+                      output.push(`  └─ Error in ${currentPath}: ${value.error || value.parseError}`);
+                    } else if (typeof value === 'object') {
+                      showErrorDetails(value, currentPath);
+                    }
+                  }
+                }
+              };
+              
+              showErrorDetails(parsedContent.data);
+            }
+            
+            errorContentTags++;
+          }
+          
+        } catch (contentError) {
+          output.push(`\nTag ${tagIndex}: ${tagName} (Critical Parse Error)`);
+          output.push(`Length: ${tagHeader.length} bytes`);
+          output.push(`CRITICAL ERROR: ${contentError.message}`);
+          output.push(`  └─ This indicates a serious parser bug or corrupted data`);
+          errorContentTags++;
+        }
+      }
+      
     } else {
       // NORMAL TAG HEADER MODE
       if (shouldDisplay) {
@@ -407,7 +489,7 @@ function parseTagData(tagData) {
     
     // If this is the End tag (type 0), stop parsing
     if (tagHeader.type === 0) {
-      if (!window.showContentParsing && !window.showUnparsedOnly) {
+      if (!window.showContentParsing && !window.showUnparsedOnly && !window.showErrorsOnly) {
         output.push("End tag reached");
       }
       break;
@@ -446,6 +528,22 @@ function parseTagData(tagData) {
     } else {
       output.push(`\nThese ${unparsedContentTags} tags need parser development to extract their content.`);
       output.push("Priority should be given to frequently occurring and important tag types.");
+    }
+    
+  } else if (window.showErrorsOnly) {
+    output.push(`\n==========================================`);
+    output.push(`Total tags scanned: ${tagIndex}`);
+    output.push(`Tags with parser errors: ${errorContentTags}`);
+    
+    if (errorContentTags === 0) {
+      output.push("\nNo parsing errors detected!");
+      output.push("All parseable tags were processed successfully.");
+    } else {
+      output.push(`\nFound ${errorContentTags} tags with parsing issues.`);
+      output.push("These errors indicate either:");
+      output.push("• Corrupted or malformed SWF data");
+      output.push("• Bugs in our parser implementations");
+      output.push("• Unsupported variants of known tag formats");
     }
     
   } else {
