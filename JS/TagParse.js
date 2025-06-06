@@ -1,15 +1,17 @@
 /* 
- * SWF Tag Parser - v1.2
+ * SWF Tag Parser - v2.0
  * Supports:
  * - Tag header parsing (type and length)
  * - Short and long format tag headers
  * - FWS, CWS, and ZWS formats
  * - Tag names and unknown tag detection
  * - Filter for important tags only
+ * - Light Content parsing integration
  */
 
-// Global variable for tag filtering
+// Global variables for tag filtering
 window.showAllTags = false;
+window.showContentParsing = false;
 
 // Tag name mapping
 const tagNames = {
@@ -80,6 +82,11 @@ const tagNames = {
 // Important tags that should always be shown
 const importantTags = new Set([
   0, 1, 9, 12, 24, 39, 43, 56, 57, 59, 69, 76, 77, 82, 86
+]);
+
+// Control tags that can be parsed for content
+const controlTags = new Set([
+  0, 1, 9, 24, 43, 69, 77, 86
 ]);
 
 function parseSWFTags(arrayBuffer) {
@@ -209,7 +216,13 @@ function parseTagData(tagData) {
   const output = [];
   const unknownTags = new Set();
   
-  output.push(`Tag Headers (${window.showAllTags ? 'All' : 'Important'} Tags):`);
+  // Initialize content parser if needed
+  let controlParser = null;
+  if (window.showContentParsing && typeof ControlParsers !== 'undefined') {
+    controlParser = new ControlParsers();
+  }
+  
+  output.push(`Tag Headers (${window.showAllTags ? 'All' : 'Important'} Tags${window.showContentParsing ? ' with Content' : ''}):`);
   output.push("------------------------------");
   
   // Parse tag headers
@@ -228,6 +241,7 @@ function parseTagData(tagData) {
     const tagName = tagNames[tagHeader.type] || "Unknown";
     const isUnknown = !tagNames[tagHeader.type];
     const isImportant = importantTags.has(tagHeader.type);
+    const isControlTag = controlTags.has(tagHeader.type);
     
     if (isUnknown) {
       unknownTags.add(tagHeader.type);
@@ -242,6 +256,19 @@ function parseTagData(tagData) {
         tagDisplay += " [UNKNOWN]";
       }
       output.push(tagDisplay);
+      
+      // Add content parsing if enabled and parser available
+      if (window.showContentParsing && controlParser && isControlTag && tagHeader.length >= 0) {
+        try {
+          const contentOffset = offset + tagHeader.headerSize;
+          const parsedContent = controlParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
+          const formattedContent = controlParser.formatTagOutput(parsedContent);
+          output.push(formattedContent);
+        } catch (contentError) {
+          output.push(`  └─ Content parsing error: ${contentError.message}`);
+        }
+      }
+      
       displayedTags++;
     }
     
@@ -271,6 +298,16 @@ function parseTagData(tagData) {
     sortedUnknown.forEach(tagType => {
       output.push(`Type ${tagType}`);
     });
+  }
+  
+  if (window.showContentParsing) {
+    output.push("------------------------------");
+    output.push("Content Parsing: Enabled");
+    if (!controlParser) {
+      output.push("Note: ControlParsers not available");
+    } else {
+      output.push("Note: Content parsing active for control tags");
+    }
   }
   
   return output;
