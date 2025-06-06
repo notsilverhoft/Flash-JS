@@ -109,6 +109,23 @@
     .content-button.active:hover {
       background-color: #218838;
     }
+
+    .unparsed-button {
+      background-color: #fd7e14;
+      color: white;
+    }
+
+    .unparsed-button:hover {
+      background-color: #e96500;
+    }
+
+    .unparsed-button.active {
+      background-color: #6f42c1;
+    }
+
+    .unparsed-button.active:hover {
+      background-color: #5a359a;
+    }
   </style>
 </head>
 <body>
@@ -120,6 +137,7 @@
     <input type="file" id="SWF-Input" name="SWF-Input">
     <button class="button toggle-button" id="toggleButton">Show Important Tags</button>
     <button class="button content-button" id="contentButton">Show Parsed Content Only</button>
+    <button class="button unparsed-button" id="unparsedButton">Show Unparsed Tags</button>
   </div>
 
   <div class="terminal-header">
@@ -134,10 +152,12 @@
     const fileNameDisplay = document.getElementById('fileName');
     const toggleButton = document.getElementById('toggleButton');
     const contentButton = document.getElementById('contentButton');
+    const unparsedButton = document.getElementById('unparsedButton');
 
     // Initialize global variables
     window.showAllTags = false;
     window.showContentParsing = false;
+    window.showUnparsedOnly = false;
 
     // Add button functionality
     uploadButton.addEventListener('click', function() {
@@ -160,13 +180,43 @@
       if (window.showContentParsing) {
         contentButton.textContent = 'Show Tag Headers';
         contentButton.classList.add('active');
-        // Hide the other toggle when in content mode
+        // Hide other buttons when in content mode
         toggleButton.style.display = 'none';
+        unparsedButton.style.display = 'none';
+        // Reset unparsed mode
+        window.showUnparsedOnly = false;
+        unparsedButton.classList.remove('active');
       } else {
         contentButton.textContent = 'Show Parsed Content Only';
         contentButton.classList.remove('active');
-        // Show the other toggle when back in header mode
+        // Show other buttons when back in header mode
         toggleButton.style.display = 'inline-block';
+        unparsedButton.style.display = 'inline-block';
+      }
+      
+      // Re-parse if file is loaded
+      reparseCurrentFile();
+    });
+
+    // Unparsed content button functionality
+    unparsedButton.addEventListener('click', function() {
+      window.showUnparsedOnly = !window.showUnparsedOnly;
+      
+      if (window.showUnparsedOnly) {
+        unparsedButton.textContent = 'Show All Tags';
+        unparsedButton.classList.add('active');
+        // Hide other buttons when in unparsed mode
+        toggleButton.style.display = 'none';
+        contentButton.style.display = 'none';
+        // Reset other modes
+        window.showContentParsing = false;
+        contentButton.classList.remove('active');
+      } else {
+        unparsedButton.textContent = 'Show Unparsed Tags';
+        unparsedButton.classList.remove('active');
+        // Show other buttons when back to normal mode
+        toggleButton.style.display = 'inline-block';
+        contentButton.style.display = 'inline-block';
       }
       
       // Re-parse if file is loaded
