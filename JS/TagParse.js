@@ -96,6 +96,11 @@ const displayTags = new Set([
   4, 5, 26, 28
 ]);
 
+// Asset tags that can be parsed for content
+const assetTags = new Set([
+  12, 56, 57, 59, 71, 76, 82
+]);
+
 function parseSWFTags(arrayBuffer) {
   const bytes = new Uint8Array(arrayBuffer);
   const output = [];
@@ -226,6 +231,7 @@ function parseTagData(tagData) {
   // Initialize content parsers if needed
   let controlParser = null;
   let displayParser = null;
+  let assetParser = null;
   
   if (window.showContentParsing) {
     if (typeof ControlParsers !== 'undefined') {
@@ -233,6 +239,9 @@ function parseTagData(tagData) {
     }
     if (typeof DisplayParsers !== 'undefined') {
       displayParser = new DisplayParsers();
+    }
+    if (typeof AssetParsers !== 'undefined') {
+      assetParser = new AssetParsers();
     }
   }
   
@@ -270,7 +279,8 @@ function parseTagData(tagData) {
     const isImportant = importantTags.has(tagHeader.type);
     const isControlTag = controlTags.has(tagHeader.type);
     const isDisplayTag = displayTags.has(tagHeader.type);
-    const canBeParsed = isControlTag || isDisplayTag;
+    const isAssetTag = assetTags.has(tagHeader.type);
+    const canBeParsed = isControlTag || isDisplayTag || isAssetTag;
     
     if (isUnknown) {
       unknownTags.add(tagHeader.type);
@@ -290,6 +300,8 @@ function parseTagData(tagData) {
             parsedContent = controlParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
           } else if (displayParser && isDisplayTag) {
             parsedContent = displayParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
+          } else if (assetParser && isAssetTag) {
+            parsedContent = assetParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
           }
           
           if (parsedContent) {
@@ -359,11 +371,7 @@ function parseTagData(tagData) {
           7: "Button definition parser needed",
           10: "Font definition parser needed",
           11: "Text definition parser needed",
-          12: "ActionScript parser needed",
-          39: "Sprite definition parser needed",
-          56: "Asset export parser needed",
-          57: "Asset import parser needed",
-          82: "ABC (ActionScript 3) parser needed"
+          39: "Sprite definition parser needed"
         };
         
         if (tagTypeHints[tagHeader.type]) {
@@ -413,7 +421,7 @@ function parseTagData(tagData) {
     
     if (parsedContentTags === 0) {
       output.push("\nNo tags could be parsed for content.");
-      output.push("Supported tag types: Control tags (SetBackgroundColor, FrameLabel, etc.) and Display tags (PlaceObject, RemoveObject, etc.)");
+      output.push("Supported tag types: Control, Display, and Asset tags");
     }
     
   } else if (window.showUnparsedOnly) {
