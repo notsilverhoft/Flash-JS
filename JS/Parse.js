@@ -89,7 +89,7 @@ function parseSWFSignature(arrayBuffer) {
         // Copy header (first 8 bytes) but replace CWS with FWS for parsing
         headerAndData.set(bytes.slice(0, 8));
         headerAndData[0] = 0x46; // 'F' instead of 'C'
-        headerAndData.set(decompressedData, 8);
+        headerAndData.set(decompressed, 8);
         
         try {
           // Parse RECT structure
