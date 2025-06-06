@@ -1,12 +1,12 @@
 /* 
- * SWF Tag Parser - v2.1
+ * SWF Tag Parser - v2.2
  * Supports:
  * - Tag header parsing (type and length)
  * - Short and long format tag headers
  * - FWS, CWS, and ZWS formats
  * - Tag names and unknown tag detection
  * - Filter for important tags only
- * - Content parsing integration (Control + Display tags)
+ * - Content parsing mode (shows ONLY parsed content)
  */
 
 // Global variables for tag filtering
@@ -234,19 +234,28 @@ function parseTagData(tagData) {
     }
   }
   
-  output.push(`Tag Headers (${window.showAllTags ? 'All' : 'Important'} Tags${window.showContentParsing ? ' with Content' : ''}):`);
-  output.push("------------------------------");
+  // Different output format based on content parsing mode
+  if (window.showContentParsing) {
+    output.push("Parsed Tag Content:");
+    output.push("==============================");
+  } else {
+    output.push(`Tag Headers (${window.showAllTags ? 'All' : 'Important'} Tags):`);
+    output.push("------------------------------");
+  }
   
   // Parse tag headers
   let offset = 0;
   let tagIndex = 0;
   let displayedTags = 0;
+  let parsedContentTags = 0;
   
   while (offset < tagData.length) {
     const tagHeader = parseTagHeader(tagData, offset);
     
     if (!tagHeader) {
-      output.push(`Error parsing tag at offset ${offset}`);
+      if (!window.showContentParsing) {
+        output.push(`Error parsing tag at offset ${offset}`);
+      }
       break;
     }
     
@@ -255,6 +264,7 @@ function parseTagData(tagData) {
     const isImportant = importantTags.has(tagHeader.type);
     const isControlTag = controlTags.has(tagHeader.type);
     const isDisplayTag = displayTags.has(tagHeader.type);
+    const canBeParsed = isControlTag || isDisplayTag;
     
     if (isUnknown) {
       unknownTags.add(tagHeader.type);
@@ -263,40 +273,86 @@ function parseTagData(tagData) {
     // Determine if we should display this tag
     const shouldDisplay = window.showAllTags || isImportant || isUnknown;
     
-    if (shouldDisplay) {
-      let tagDisplay = `Tag ${tagIndex}: Type ${tagHeader.type} (${tagName}), Length ${tagHeader.length} bytes`;
-      if (isUnknown) {
-        tagDisplay += " [UNKNOWN]";
-      }
-      output.push(tagDisplay);
-      
-      // Add content parsing if enabled and parser available
-      if (window.showContentParsing && tagHeader.length >= 0) {
+    if (window.showContentParsing) {
+      // CONTENT PARSING MODE - Only show tags that can be parsed
+      if (canBeParsed && tagHeader.length >= 0) {
         try {
           const contentOffset = offset + tagHeader.headerSize;
           let parsedContent = null;
           
           if (controlParser && isControlTag) {
             parsedContent = controlParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
-            const formattedContent = controlParser.formatTagOutput(parsedContent);
-            output.push(formattedContent);
           } else if (displayParser && isDisplayTag) {
             parsedContent = displayParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
-            const formattedContent = displayParser.formatTagOutput(parsedContent);
-            output.push(formattedContent);
+          }
+          
+          if (parsedContent) {
+            output.push(`\nTag ${tagIndex}: ${parsedContent.tagType}`);
+            output.push(`Description: ${parsedContent.description}`);
+            output.push(`Length: ${tagHeader.length} bytes`);
+            
+            if (parsedContent.error) {
+              output.push(`ERROR: ${parsedContent.error}`);
+            }
+            
+            if (parsedContent.data && Object.keys(parsedContent.data).length > 0) {
+              output.push("Content:");
+              
+              // Format the content data nicely
+              const formatContentData = (data, indent = "  ") => {
+                for (const [key, value] of Object.entries(data)) {
+                  if (value === null || value === undefined) {
+                    output.push(`${indent}${key}: null`);
+                  } else if (typeof value === 'object' && !Array.isArray(value)) {
+                    output.push(`${indent}${key}:`);
+                    formatContentData(value, indent + "  ");
+                  } else if (Array.isArray(value)) {
+                    output.push(`${indent}${key}: [${value.length} items]`);
+                    if (value.length <= 10) {
+                      value.forEach((item, index) => {
+                        output.push(`${indent}  [${index}]: ${JSON.stringify(item)}`);
+                      });
+                    } else {
+                      output.push(`${indent}  (showing first 5 of ${value.length} items)`);
+                      for (let i = 0; i < 5; i++) {
+                        output.push(`${indent}  [${i}]: ${JSON.stringify(value[i])}`);
+                      }
+                    }
+                  } else {
+                    output.push(`${indent}${key}: ${value}`);
+                  }
+                }
+              };
+              
+              formatContentData(parsedContent.data);
+            }
+            
+            parsedContentTags++;
           }
           
         } catch (contentError) {
-          output.push(`  └─ Content parsing error: ${contentError.message}`);
+          output.push(`\nTag ${tagIndex}: ${tagName} (Parse Error)`);
+          output.push(`ERROR: ${contentError.message}`);
         }
       }
       
-      displayedTags++;
+    } else {
+      // NORMAL TAG HEADER MODE
+      if (shouldDisplay) {
+        let tagDisplay = `Tag ${tagIndex}: Type ${tagHeader.type} (${tagName}), Length ${tagHeader.length} bytes`;
+        if (isUnknown) {
+          tagDisplay += " [UNKNOWN]";
+        }
+        output.push(tagDisplay);
+        displayedTags++;
+      }
     }
     
     // If this is the End tag (type 0), stop parsing
     if (tagHeader.type === 0) {
-      output.push("End tag reached");
+      if (!window.showContentParsing) {
+        output.push("End tag reached");
+      }
       break;
     }
     
@@ -311,28 +367,27 @@ function parseTagData(tagData) {
     }
   }
   
-  output.push(`Total tags parsed: ${tagIndex}, Displayed: ${displayedTags}`);
-  
-  if (unknownTags.size > 0) {
-    output.push("------------------------------");
-    output.push("Unknown Tag Types Found:");
-    const sortedUnknown = Array.from(unknownTags).sort((a, b) => a - b);
-    sortedUnknown.forEach(tagType => {
-      output.push(`Type ${tagType}`);
-    });
-  }
-  
+  // Summary based on mode
   if (window.showContentParsing) {
-    output.push("------------------------------");
-    output.push("Content Parsing: Enabled");
-    const availableParsers = [];
-    if (controlParser) availableParsers.push("Control");
-    if (displayParser) availableParsers.push("Display");
+    output.push(`\n==============================`);
+    output.push(`Total tags scanned: ${tagIndex}`);
+    output.push(`Tags with parsed content: ${parsedContentTags}`);
     
-    if (availableParsers.length > 0) {
-      output.push(`Available parsers: ${availableParsers.join(", ")}`);
-    } else {
-      output.push("Note: No content parsers available");
+    if (parsedContentTags === 0) {
+      output.push("\nNo tags could be parsed for content.");
+      output.push("Supported tag types: Control tags (SetBackgroundColor, FrameLabel, etc.) and Display tags (PlaceObject, RemoveObject, etc.)");
+    }
+    
+  } else {
+    output.push(`Total tags parsed: ${tagIndex}, Displayed: ${displayedTags}`);
+    
+    if (unknownTags.size > 0) {
+      output.push("------------------------------");
+      output.push("Unknown Tag Types Found:");
+      const sortedUnknown = Array.from(unknownTags).sort((a, b) => a - b);
+      sortedUnknown.forEach(tagType => {
+        output.push(`Type ${tagType}`);
+      });
     }
   }
   
