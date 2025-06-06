@@ -126,6 +126,23 @@
     .unparsed-button.active:hover {
       background-color: #5a359a;
     }
+
+    .error-button {
+      background-color: #e74c3c;
+      color: white;
+    }
+
+    .error-button:hover {
+      background-color: #c0392b;
+    }
+
+    .error-button.active {
+      background-color: #8e44ad;
+    }
+
+    .error-button.active:hover {
+      background-color: #7d3c98;
+    }
   </style>
 </head>
 <body>
@@ -138,6 +155,7 @@
     <button class="button toggle-button" id="toggleButton">Show Important Tags</button>
     <button class="button content-button" id="contentButton">Show Parsed Content Only</button>
     <button class="button unparsed-button" id="unparsedButton">Show Unparsed Tags</button>
+    <button class="button error-button" id="errorButton">Show Parser Errors</button>
   </div>
 
   <div class="terminal-header">
@@ -153,11 +171,13 @@
     const toggleButton = document.getElementById('toggleButton');
     const contentButton = document.getElementById('contentButton');
     const unparsedButton = document.getElementById('unparsedButton');
+    const errorButton = document.getElementById('errorButton');
 
     // Initialize global variables
     window.showAllTags = false;
     window.showContentParsing = false;
     window.showUnparsedOnly = false;
+    window.showErrorsOnly = false;
 
     // Add button functionality
     uploadButton.addEventListener('click', function() {
@@ -183,15 +203,19 @@
         // Hide other buttons when in content mode
         toggleButton.style.display = 'none';
         unparsedButton.style.display = 'none';
-        // Reset unparsed mode
+        errorButton.style.display = 'none';
+        // Reset other modes
         window.showUnparsedOnly = false;
+        window.showErrorsOnly = false;
         unparsedButton.classList.remove('active');
+        errorButton.classList.remove('active');
       } else {
         contentButton.textContent = 'Show Parsed Content Only';
         contentButton.classList.remove('active');
         // Show other buttons when back in header mode
         toggleButton.style.display = 'inline-block';
         unparsedButton.style.display = 'inline-block';
+        errorButton.style.display = 'inline-block';
       }
       
       // Re-parse if file is loaded
@@ -208,15 +232,48 @@
         // Hide other buttons when in unparsed mode
         toggleButton.style.display = 'none';
         contentButton.style.display = 'none';
+        errorButton.style.display = 'none';
         // Reset other modes
         window.showContentParsing = false;
+        window.showErrorsOnly = false;
         contentButton.classList.remove('active');
+        errorButton.classList.remove('active');
       } else {
         unparsedButton.textContent = 'Show Unparsed Tags';
         unparsedButton.classList.remove('active');
         // Show other buttons when back to normal mode
         toggleButton.style.display = 'inline-block';
         contentButton.style.display = 'inline-block';
+        errorButton.style.display = 'inline-block';
+      }
+      
+      // Re-parse if file is loaded
+      reparseCurrentFile();
+    });
+
+    // Error parsing button functionality
+    errorButton.addEventListener('click', function() {
+      window.showErrorsOnly = !window.showErrorsOnly;
+      
+      if (window.showErrorsOnly) {
+        errorButton.textContent = 'Show All Tags';
+        errorButton.classList.add('active');
+        // Hide other buttons when in error mode
+        toggleButton.style.display = 'none';
+        contentButton.style.display = 'none';
+        unparsedButton.style.display = 'none';
+        // Reset other modes
+        window.showContentParsing = false;
+        window.showUnparsedOnly = false;
+        contentButton.classList.remove('active');
+        unparsedButton.classList.remove('active');
+      } else {
+        errorButton.textContent = 'Show Parser Errors';
+        errorButton.classList.remove('active');
+        // Show other buttons when back to normal mode
+        toggleButton.style.display = 'inline-block';
+        contentButton.style.display = 'inline-block';
+        unparsedButton.style.display = 'inline-block';
       }
       
       // Re-parse if file is loaded
