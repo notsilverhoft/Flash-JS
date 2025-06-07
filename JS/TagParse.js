@@ -16,6 +16,7 @@
  * - ADDED: Sound parsing support
  * - ADDED: Button parsing support
  * - ADDED: Video parsing support
+ * - ADDED: Morph shape parsing support
  * - ADDED: Tag type filtering for large SWF files
  */
 
@@ -94,7 +95,7 @@ const tagNames = {
 
 // Important tags that should always be shown
 const importantTags = new Set([
-  0, 1, 2, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 15, 17, 18, 19, 20, 21, 22, 23, 24, 26, 28, 32, 33, 34, 35, 36, 37, 39, 43, 45, 48, 56, 57, 59, 60, 61, 69, 75, 76, 77, 82, 83, 86, 90
+  0, 1, 2, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 15, 17, 18, 19, 20, 21, 22, 23, 24, 26, 28, 32, 33, 34, 35, 36, 37, 39, 43, 45, 46, 48, 56, 57, 59, 60, 61, 69, 75, 76, 77, 82, 83, 84, 86, 90
 ]);
 
 // Control tags that can be parsed for content
@@ -152,6 +153,11 @@ const videoTags = new Set([
   60, 61
 ]);
 
+// Morph shape tags that can be parsed for content
+const morphTags = new Set([
+  46, 84
+]);
+
 // Function to check if tag should be displayed based on filter
 function shouldDisplayTagByFilter(tagType) {
   if (!window.tagTypeFilter) {
@@ -185,6 +191,8 @@ function shouldDisplayTagByFilter(tagType) {
         return buttonTags.has(tagType);
       case 'video':
         return videoTags.has(tagType);
+      case 'morph':
+        return morphTags.has(tagType);
       default:
         return true;
     }
@@ -332,6 +340,7 @@ function parseTagData(tagData) {
   let soundParser = null;
   let buttonParser = null;
   let videoParser = null;
+  let morphParser = null;
   
   if (window.showContentParsing || window.showErrorsOnly) {
     if (typeof ControlParsers !== 'undefined') {
@@ -366,6 +375,9 @@ function parseTagData(tagData) {
     }
     if (typeof VideoParsers !== 'undefined') {
       videoParser = new VideoParsers();
+    }
+    if (typeof MorphParsers !== 'undefined') {
+      morphParser = new MorphParsers();
     }
   }
   
@@ -418,7 +430,8 @@ function parseTagData(tagData) {
     const isSoundTag = soundTags.has(tagHeader.type);
     const isButtonTag = buttonTags.has(tagHeader.type);
     const isVideoTag = videoTags.has(tagHeader.type);
-    const canBeParsed = isControlTag || isDisplayTag || isAssetTag || isShapeTag || isSpriteTag || isFontTag || isTextTag || isBitmapTag || isSoundTag || isButtonTag || isVideoTag;
+    const isMorphTag = morphTags.has(tagHeader.type);
+    const canBeParsed = isControlTag || isDisplayTag || isAssetTag || isShapeTag || isSpriteTag || isFontTag || isTextTag || isBitmapTag || isSoundTag || isButtonTag || isVideoTag || isMorphTag;
     
     // Check tag type filter
     const passesFilter = shouldDisplayTagByFilter(tagHeader.type);
@@ -467,6 +480,8 @@ function parseTagData(tagData) {
             parsedContent = buttonParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
           } else if (videoParser && isVideoTag) {
             parsedContent = videoParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
+          } else if (morphParser && isMorphTag) {
+            parsedContent = morphParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
           }
           
           if (parsedContent) {
@@ -568,8 +583,8 @@ function parseTagData(tagData) {
         
         // Add some hints about what type of parser this might need
         const tagTypeHints = {
-          46: "Morph shape parser needed",
-          84: "Enhanced morph shape parser needed"
+          78: "Scaling grid parser needed",
+          87: "Binary data parser needed"
         };
         
         if (tagTypeHints[tagHeader.type]) {
@@ -610,6 +625,8 @@ function parseTagData(tagData) {
             parsedContent = buttonParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
           } else if (videoParser && isVideoTag) {
             parsedContent = videoParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
+          } else if (morphParser && isMorphTag) {
+            parsedContent = morphParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
           }
           
           // Check if the parsed content has an error
@@ -717,7 +734,7 @@ function parseTagData(tagData) {
     
     if (parsedContentTags === 0) {
       output.push("\nNo tags could be parsed for content.");
-      output.push("Supported tag types: Control, Display, Asset, Shape, Sprite, Font, Text, Bitmap, Sound, Button, and Video tags");
+      output.push("Supported tag types: Control, Display, Asset, Shape, Sprite, Font, Text, Bitmap, Sound, Button, Video, and Morph tags");
     }
     
   } else if (window.showUnparsedOnly) {
@@ -786,7 +803,8 @@ function getFilterDescription() {
       'bitmap': 'Bitmap Tags',
       'sound': 'Sound Tags',
       'button': 'Button Tags',
-      'video': 'Video Tags'
+      'video': 'Video Tags',
+      'morph': 'Morph Shape Tags'
     };
     return ` (Filtered: ${categoryNames[window.tagTypeFilter.category]} only)`;
   }
