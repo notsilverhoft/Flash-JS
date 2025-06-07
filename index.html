@@ -214,6 +214,7 @@
         <option value="sprite">Sprite Tags</option>
         <option value="font">Font Tags</option>
         <option value="text">Text Tags</option>
+        <option value="bitmap">Bitmap Tags</option>
       </select>
     </div>
 
@@ -276,6 +277,15 @@
           <option value="11">DefineText (11)</option>
           <option value="33">DefineText2 (33)</option>
           <option value="37">DefineEditText (37)</option>
+        </optgroup>
+        <!-- Bitmap Tags -->
+        <optgroup label="Bitmap Tags">
+          <option value="6">DefineBits (6)</option>
+          <option value="8">JPEGTables (8)</option>
+          <option value="20">DefineBitsLossless (20)</option>
+          <option value="21">DefineBitsJPEG2 (21)</option>
+          <option value="35">DefineBitsJPEG3 (35)</option>
+          <option value="36">DefineBitsLossless2 (36)</option>
         </optgroup>
       </select>
     </div>
@@ -515,6 +525,7 @@
   <script src="JS/parsers/SpriteParsers.js"></script>
   <script src="JS/parsers/FontParsers.js"></script>
   <script src="JS/parsers/TextParsers.js"></script>
+  <script src="JS/parsers/BitmapParsers.js"></script>
   <script src="JS/TagParse.js"></script>
   
   <!-- Load Parse.js LAST as it runs commands from other files -->
