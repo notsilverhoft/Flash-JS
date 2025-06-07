@@ -14,6 +14,7 @@
  * - ADDED: Text parsing support
  * - ADDED: Bitmap parsing support
  * - ADDED: Sound parsing support
+ * - ADDED: Button parsing support
  * - ADDED: Tag type filtering for large SWF files
  */
 
@@ -92,7 +93,7 @@ const tagNames = {
 
 // Important tags that should always be shown
 const importantTags = new Set([
-  0, 1, 2, 4, 5, 6, 8, 9, 10, 11, 12, 14, 15, 17, 18, 19, 20, 21, 22, 24, 26, 28, 32, 33, 35, 36, 37, 39, 43, 45, 48, 56, 57, 59, 69, 75, 76, 77, 82, 83, 86, 90
+  0, 1, 2, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 15, 17, 18, 19, 20, 21, 22, 23, 24, 26, 28, 32, 33, 34, 35, 36, 37, 39, 43, 45, 48, 56, 57, 59, 69, 75, 76, 77, 82, 83, 86, 90
 ]);
 
 // Control tags that can be parsed for content
@@ -140,6 +141,11 @@ const soundTags = new Set([
   14, 15, 17, 18, 19, 45
 ]);
 
+// Button tags that can be parsed for content
+const buttonTags = new Set([
+  7, 23, 34
+]);
+
 // Function to check if tag should be displayed based on filter
 function shouldDisplayTagByFilter(tagType) {
   if (!window.tagTypeFilter) {
@@ -169,6 +175,8 @@ function shouldDisplayTagByFilter(tagType) {
         return bitmapTags.has(tagType);
       case 'sound':
         return soundTags.has(tagType);
+      case 'button':
+        return buttonTags.has(tagType);
       default:
         return true;
     }
@@ -314,6 +322,7 @@ function parseTagData(tagData) {
   let textParser = null;
   let bitmapParser = null;
   let soundParser = null;
+  let buttonParser = null;
   
   if (window.showContentParsing || window.showErrorsOnly) {
     if (typeof ControlParsers !== 'undefined') {
@@ -342,6 +351,9 @@ function parseTagData(tagData) {
     }
     if (typeof SoundParsers !== 'undefined') {
       soundParser = new SoundParsers();
+    }
+    if (typeof ButtonParsers !== 'undefined') {
+      buttonParser = new ButtonParsers();
     }
   }
   
@@ -392,7 +404,8 @@ function parseTagData(tagData) {
     const isTextTag = textTags.has(tagHeader.type);
     const isBitmapTag = bitmapTags.has(tagHeader.type);
     const isSoundTag = soundTags.has(tagHeader.type);
-    const canBeParsed = isControlTag || isDisplayTag || isAssetTag || isShapeTag || isSpriteTag || isFontTag || isTextTag || isBitmapTag || isSoundTag;
+    const isButtonTag = buttonTags.has(tagHeader.type);
+    const canBeParsed = isControlTag || isDisplayTag || isAssetTag || isShapeTag || isSpriteTag || isFontTag || isTextTag || isBitmapTag || isSoundTag || isButtonTag;
     
     // Check tag type filter
     const passesFilter = shouldDisplayTagByFilter(tagHeader.type);
@@ -437,6 +450,8 @@ function parseTagData(tagData) {
             parsedContent = bitmapParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
           } else if (soundParser && isSoundTag) {
             parsedContent = soundParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
+          } else if (buttonParser && isButtonTag) {
+            parsedContent = buttonParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
           }
           
           if (parsedContent) {
@@ -538,8 +553,6 @@ function parseTagData(tagData) {
         
         // Add some hints about what type of parser this might need
         const tagTypeHints = {
-          7: "Button definition parser needed",
-          34: "Enhanced button parser needed",
           46: "Morph shape parser needed",
           60: "Video stream parser needed",
           61: "Video frame parser needed",
@@ -580,6 +593,8 @@ function parseTagData(tagData) {
             parsedContent = bitmapParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
           } else if (soundParser && isSoundTag) {
             parsedContent = soundParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
+          } else if (buttonParser && isButtonTag) {
+            parsedContent = buttonParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
           }
           
           // Check if the parsed content has an error
@@ -687,7 +702,7 @@ function parseTagData(tagData) {
     
     if (parsedContentTags === 0) {
       output.push("\nNo tags could be parsed for content.");
-      output.push("Supported tag types: Control, Display, Asset, Shape, Sprite, Font, Text, Bitmap, and Sound tags");
+      output.push("Supported tag types: Control, Display, Asset, Shape, Sprite, Font, Text, Bitmap, Sound, and Button tags");
     }
     
   } else if (window.showUnparsedOnly) {
@@ -754,7 +769,8 @@ function getFilterDescription() {
       'font': 'Font Tags',
       'text': 'Text Tags',
       'bitmap': 'Bitmap Tags',
-      'sound': 'Sound Tags'
+      'sound': 'Sound Tags',
+      'button': 'Button Tags'
     };
     return ` (Filtered: ${categoryNames[window.tagTypeFilter.category]} only)`;
   }
