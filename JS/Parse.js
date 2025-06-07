@@ -1,9 +1,10 @@
 /* 
- * SWF Parser - v5.1
+ * SWF Parser - v5.2
  * Supports:
  * - Header parsing (FWS, CWS, ZWS)
  * - RECT structure parsing
  * - Frame rate and frame count parsing
+ * - FIXED: CWS decompression variable name bug
  */
 function parseSWFSignature(arrayBuffer) {
   const bytes = new Uint8Array(arrayBuffer);
@@ -89,7 +90,7 @@ function parseSWFSignature(arrayBuffer) {
         // Copy header (first 8 bytes) but replace CWS with FWS for parsing
         headerAndData.set(bytes.slice(0, 8));
         headerAndData[0] = 0x46; // 'F' instead of 'C'
-        headerAndData.set(decompressed, 8);
+        headerAndData.set(decompressedData, 8); // FIXED: was "decompressed", now "decompressedData"
         
         try {
           // Parse RECT structure
