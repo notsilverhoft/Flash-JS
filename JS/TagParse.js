@@ -1,5 +1,5 @@
 /* 
- * SWF Tag Parser - v2.9
+ * SWF Tag Parser - v3.0
  * Supports:
  * - Tag header parsing (type and length)
  * - Short and long format tag headers
@@ -17,6 +17,7 @@
  * - ADDED: Button parsing support
  * - ADDED: Video parsing support
  * - ADDED: Morph shape parsing support
+ * - ADDED: ActionScript tag filtering support
  * - ADDED: Tag type filtering for large SWF files
  */
 
@@ -110,7 +111,12 @@ const displayTags = new Set([
 
 // Asset tags that can be parsed for content
 const assetTags = new Set([
-  12, 56, 57, 59, 71, 76, 82
+  56, 57, 71, 76
+]);
+
+// ActionScript tags that can be parsed for content
+const actionscriptTags = new Set([
+  12, 59, 82
 ]);
 
 // Shape tags that can be parsed for content
@@ -175,6 +181,8 @@ function shouldDisplayTagByFilter(tagType) {
         return displayTags.has(tagType);
       case 'asset':
         return assetTags.has(tagType);
+      case 'actionscript':
+        return actionscriptTags.has(tagType);
       case 'shape':
         return shapeTags.has(tagType);
       case 'sprite':
@@ -422,6 +430,7 @@ function parseTagData(tagData) {
     const isControlTag = controlTags.has(tagHeader.type);
     const isDisplayTag = displayTags.has(tagHeader.type);
     const isAssetTag = assetTags.has(tagHeader.type);
+    const isActionScriptTag = actionscriptTags.has(tagHeader.type);
     const isShapeTag = shapeTags.has(tagHeader.type);
     const isSpriteTag = spriteTags.has(tagHeader.type);
     const isFontTag = fontTags.has(tagHeader.type);
@@ -431,7 +440,7 @@ function parseTagData(tagData) {
     const isButtonTag = buttonTags.has(tagHeader.type);
     const isVideoTag = videoTags.has(tagHeader.type);
     const isMorphTag = morphTags.has(tagHeader.type);
-    const canBeParsed = isControlTag || isDisplayTag || isAssetTag || isShapeTag || isSpriteTag || isFontTag || isTextTag || isBitmapTag || isSoundTag || isButtonTag || isVideoTag || isMorphTag;
+    const canBeParsed = isControlTag || isDisplayTag || isAssetTag || isActionScriptTag || isShapeTag || isSpriteTag || isFontTag || isTextTag || isBitmapTag || isSoundTag || isButtonTag || isVideoTag || isMorphTag;
     
     // Check tag type filter
     const passesFilter = shouldDisplayTagByFilter(tagHeader.type);
@@ -462,7 +471,7 @@ function parseTagData(tagData) {
             parsedContent = controlParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
           } else if (displayParser && isDisplayTag) {
             parsedContent = displayParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
-          } else if (assetParser && isAssetTag) {
+          } else if (assetParser && (isAssetTag || isActionScriptTag)) {
             parsedContent = assetParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
           } else if (shapeParser && isShapeTag) {
             parsedContent = shapeParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
@@ -607,7 +616,7 @@ function parseTagData(tagData) {
             parsedContent = controlParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
           } else if (displayParser && isDisplayTag) {
             parsedContent = displayParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
-          } else if (assetParser && isAssetTag) {
+          } else if (assetParser && (isAssetTag || isActionScriptTag)) {
             parsedContent = assetParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
           } else if (shapeParser && isShapeTag) {
             parsedContent = shapeParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
@@ -734,7 +743,7 @@ function parseTagData(tagData) {
     
     if (parsedContentTags === 0) {
       output.push("\nNo tags could be parsed for content.");
-      output.push("Supported tag types: Control, Display, Asset, Shape, Sprite, Font, Text, Bitmap, Sound, Button, Video, and Morph tags");
+      output.push("Supported tag types: Control, Display, Asset, ActionScript, Shape, Sprite, Font, Text, Bitmap, Sound, Button, Video, and Morph tags");
     }
     
   } else if (window.showUnparsedOnly) {
@@ -796,6 +805,7 @@ function getFilterDescription() {
       'control': 'Control Tags',
       'display': 'Display Tags', 
       'asset': 'Asset Tags',
+      'actionscript': 'ActionScript Tags',
       'shape': 'Shape Tags',
       'sprite': 'Sprite Tags',
       'font': 'Font Tags',
