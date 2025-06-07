@@ -1,5 +1,5 @@
 /* 
- * SWF Tag Parser - v2.5
+ * SWF Tag Parser - v2.6
  * Supports:
  * - Tag header parsing (type and length)
  * - Short and long format tag headers
@@ -10,6 +10,7 @@
  * - Unparsed content mode (shows ONLY tags that can't be parsed)
  * - Error-only mode (shows ONLY tags with parsing errors)
  * - FIXED: Stack overflow in content formatting
+ * - ADDED: Font parsing support
  */
 
 // Global variables for tag filtering
@@ -86,7 +87,7 @@ const tagNames = {
 
 // Important tags that should always be shown
 const importantTags = new Set([
-  0, 1, 2, 4, 5, 9, 12, 22, 24, 26, 28, 32, 39, 43, 56, 57, 59, 69, 76, 77, 82, 83, 86
+  0, 1, 2, 4, 5, 9, 10, 11, 12, 22, 24, 26, 28, 32, 37, 39, 43, 48, 56, 57, 59, 69, 75, 76, 77, 82, 83, 86, 90
 ]);
 
 // Control tags that can be parsed for content
@@ -112,6 +113,11 @@ const shapeTags = new Set([
 // Sprite tags that can be parsed for content
 const spriteTags = new Set([
   39
+]);
+
+// Font tags that can be parsed for content
+const fontTags = new Set([
+  10, 13, 48, 62, 73, 75, 88, 90
 ]);
 
 function parseSWFTags(arrayBuffer) {
@@ -247,6 +253,7 @@ function parseTagData(tagData) {
   let assetParser = null;
   let shapeParser = null;
   let spriteParser = null;
+  let fontParser = null;
   
   if (window.showContentParsing || window.showErrorsOnly) {
     if (typeof ControlParsers !== 'undefined') {
@@ -263,6 +270,9 @@ function parseTagData(tagData) {
     }
     if (typeof SpriteParsers !== 'undefined') {
       spriteParser = new SpriteParsers();
+    }
+    if (typeof FontParsers !== 'undefined') {
+      fontParser = new FontParsers();
     }
   }
   
@@ -307,7 +317,8 @@ function parseTagData(tagData) {
     const isAssetTag = assetTags.has(tagHeader.type);
     const isShapeTag = shapeTags.has(tagHeader.type);
     const isSpriteTag = spriteTags.has(tagHeader.type);
-    const canBeParsed = isControlTag || isDisplayTag || isAssetTag || isShapeTag || isSpriteTag;
+    const isFontTag = fontTags.has(tagHeader.type);
+    const canBeParsed = isControlTag || isDisplayTag || isAssetTag || isShapeTag || isSpriteTag || isFontTag;
     
     if (isUnknown) {
       unknownTags.add(tagHeader.type);
@@ -333,6 +344,8 @@ function parseTagData(tagData) {
             parsedContent = shapeParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
           } else if (spriteParser && isSpriteTag) {
             parsedContent = spriteParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
+          } else if (fontParser && isFontTag) {
+            parsedContent = fontParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
           }
           
           if (parsedContent) {
@@ -436,8 +449,8 @@ function parseTagData(tagData) {
         const tagTypeHints = {
           6: "Bitmap definition parser needed", 
           7: "Button definition parser needed",
-          10: "Font definition parser needed",
-          11: "Text definition parser needed"
+          14: "Sound definition parser needed",
+          15: "Sound control parser needed"
         };
         
         if (tagTypeHints[tagHeader.type]) {
@@ -466,6 +479,8 @@ function parseTagData(tagData) {
             parsedContent = shapeParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
           } else if (spriteParser && isSpriteTag) {
             parsedContent = spriteParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
+          } else if (fontParser && isFontTag) {
+            parsedContent = fontParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
           }
           
           // Check if the parsed content has an error
@@ -569,7 +584,7 @@ function parseTagData(tagData) {
     
     if (parsedContentTags === 0) {
       output.push("\nNo tags could be parsed for content.");
-      output.push("Supported tag types: Control, Display, Asset, Shape, and Sprite tags");
+      output.push("Supported tag types: Control, Display, Asset, Shape, Sprite, and Font tags");
     }
     
   } else if (window.showUnparsedOnly) {
