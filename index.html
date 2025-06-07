@@ -218,6 +218,7 @@
         <option value="sound">Sound Tags</option>
         <option value="button">Button Tags</option>
         <option value="video">Video Tags</option>
+        <option value="morph">Morph Shape Tags</option>
       </select>
     </div>
 
@@ -309,6 +310,11 @@
         <optgroup label="Video Tags">
           <option value="60">DefineVideoStream (60)</option>
           <option value="61">VideoFrame (61)</option>
+        </optgroup>
+        <!-- Morph Shape Tags -->
+        <optgroup label="Morph Shape Tags">
+          <option value="46">DefineMorphShape (46)</option>
+          <option value="84">DefineMorphShape2 (84)</option>
         </optgroup>
       </select>
     </div>
@@ -552,6 +558,7 @@
   <script src="JS/parsers/SoundParsers.js"></script>
   <script src="JS/parsers/ButtonParsers.js"></script>
   <script src="JS/parsers/VideoParsers.js"></script>
+  <script src="JS/parsers/MorphParsers.js"></script>
   <script src="JS/TagParse.js"></script>
   
   <!-- Load Parse.js LAST as it runs commands from other files -->
