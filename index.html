@@ -217,6 +217,7 @@
         <option value="bitmap">Bitmap Tags</option>
         <option value="sound">Sound Tags</option>
         <option value="button">Button Tags</option>
+        <option value="video">Video Tags</option>
       </select>
     </div>
 
@@ -303,6 +304,11 @@
           <option value="7">DefineButton (7)</option>
           <option value="23">DefineButtonCxform (23)</option>
           <option value="34">DefineButton2 (34)</option>
+        </optgroup>
+        <!-- Video Tags -->
+        <optgroup label="Video Tags">
+          <option value="60">DefineVideoStream (60)</option>
+          <option value="61">VideoFrame (61)</option>
         </optgroup>
       </select>
     </div>
@@ -545,6 +551,7 @@
   <script src="JS/parsers/BitmapParsers.js"></script>
   <script src="JS/parsers/SoundParsers.js"></script>
   <script src="JS/parsers/ButtonParsers.js"></script>
+  <script src="JS/parsers/VideoParsers.js"></script>
   <script src="JS/TagParse.js"></script>
   
   <!-- Load Parse.js LAST as it runs commands from other files -->
