@@ -1,7 +1,8 @@
 /* 
- * SWF Data Types Parser - v1.0
+ * SWF Data Types Parser - v1.1
  * Core data structure parsing for SWF format
  * Foundation for all other tag parsers
+ * Fixed: Added formatRect method for consistency with ShapeParsers
  */
 class SWFDataTypes {
   constructor() {
@@ -257,6 +258,29 @@ class SWFDataTypes {
     return `Scale(${matrix.scaleX.toFixed(3)}, ${matrix.scaleY.toFixed(3)}) ` +
            `Rotate(${matrix.rotateSkew0.toFixed(3)}, ${matrix.rotateSkew1.toFixed(3)}) ` +
            `Translate(${matrix.translateXPixels.toFixed(1)}px, ${matrix.translateYPixels.toFixed(1)}px)`;
+  }
+  
+  // ADDED: formatRect method for consistency with ShapeParsers
+  formatRect(rect) {
+    if (!rect || typeof rect !== 'object') {
+      return "Invalid rectangle";
+    }
+    
+    // Calculate dimensions in twips
+    const width = (rect.xMax || 0) - (rect.xMin || 0);
+    const height = (rect.yMax || 0) - (rect.yMin || 0);
+    
+    // Convert to pixels for display
+    const widthPx = width / this.TWIPS_PER_PIXEL;
+    const heightPx = height / this.TWIPS_PER_PIXEL;
+    
+    // Use already calculated pixel values if available, otherwise convert
+    const xMinPx = rect.xMinPixels !== undefined ? rect.xMinPixels : (rect.xMin || 0) / this.TWIPS_PER_PIXEL;
+    const yMinPx = rect.yMinPixels !== undefined ? rect.yMinPixels : (rect.yMin || 0) / this.TWIPS_PER_PIXEL;
+    const xMaxPx = rect.xMaxPixels !== undefined ? rect.xMaxPixels : (rect.xMax || 0) / this.TWIPS_PER_PIXEL;
+    const yMaxPx = rect.yMaxPixels !== undefined ? rect.yMaxPixels : (rect.yMax || 0) / this.TWIPS_PER_PIXEL;
+    
+    return `${widthPx.toFixed(1)}x${heightPx.toFixed(1)}px (${xMinPx.toFixed(1)}, ${yMinPx.toFixed(1)}) to (${xMaxPx.toFixed(1)}, ${yMaxPx.toFixed(1)})`;
   }
 }
 
