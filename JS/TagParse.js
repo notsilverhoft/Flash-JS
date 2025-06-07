@@ -1,5 +1,5 @@
 /* 
- * SWF Tag Parser - v2.7
+ * SWF Tag Parser - v2.8
  * Supports:
  * - Tag header parsing (type and length)
  * - Short and long format tag headers
@@ -11,6 +11,7 @@
  * - Error-only mode (shows ONLY tags with parsing errors)
  * - FIXED: Stack overflow in content formatting
  * - ADDED: Font parsing support
+ * - ADDED: Text parsing support
  * - ADDED: Tag type filtering for large SWF files
  */
 
@@ -19,7 +20,7 @@ window.showAllTags = false;
 window.showContentParsing = false;
 window.showUnparsedOnly = false;
 window.showErrorsOnly = false;
-window.tagTypeFilter = null; // NEW: Tag type filtering
+window.tagTypeFilter = null; // Tag type filtering
 
 // Tag name mapping
 const tagNames = {
@@ -89,7 +90,7 @@ const tagNames = {
 
 // Important tags that should always be shown
 const importantTags = new Set([
-  0, 1, 2, 4, 5, 9, 10, 11, 12, 22, 24, 26, 28, 32, 37, 39, 43, 48, 56, 57, 59, 69, 75, 76, 77, 82, 83, 86, 90
+  0, 1, 2, 4, 5, 9, 10, 11, 12, 22, 24, 26, 28, 32, 33, 37, 39, 43, 48, 56, 57, 59, 69, 75, 76, 77, 82, 83, 86, 90
 ]);
 
 // Control tags that can be parsed for content
@@ -122,7 +123,12 @@ const fontTags = new Set([
   10, 13, 48, 62, 73, 75, 88, 90
 ]);
 
-// NEW: Function to check if tag should be displayed based on filter
+// Text tags that can be parsed for content
+const textTags = new Set([
+  11, 33, 37
+]);
+
+// Function to check if tag should be displayed based on filter
 function shouldDisplayTagByFilter(tagType) {
   if (!window.tagTypeFilter) {
     return true; // No filter, show all
@@ -145,6 +151,8 @@ function shouldDisplayTagByFilter(tagType) {
         return spriteTags.has(tagType);
       case 'font':
         return fontTags.has(tagType);
+      case 'text':
+        return textTags.has(tagType);
       default:
         return true;
     }
@@ -287,6 +295,7 @@ function parseTagData(tagData) {
   let shapeParser = null;
   let spriteParser = null;
   let fontParser = null;
+  let textParser = null;
   
   if (window.showContentParsing || window.showErrorsOnly) {
     if (typeof ControlParsers !== 'undefined') {
@@ -306,6 +315,9 @@ function parseTagData(tagData) {
     }
     if (typeof FontParsers !== 'undefined') {
       fontParser = new FontParsers();
+    }
+    if (typeof TextParsers !== 'undefined') {
+      textParser = new TextParsers();
     }
   }
   
@@ -353,9 +365,10 @@ function parseTagData(tagData) {
     const isShapeTag = shapeTags.has(tagHeader.type);
     const isSpriteTag = spriteTags.has(tagHeader.type);
     const isFontTag = fontTags.has(tagHeader.type);
-    const canBeParsed = isControlTag || isDisplayTag || isAssetTag || isShapeTag || isSpriteTag || isFontTag;
+    const isTextTag = textTags.has(tagHeader.type);
+    const canBeParsed = isControlTag || isDisplayTag || isAssetTag || isShapeTag || isSpriteTag || isFontTag || isTextTag;
     
-    // NEW: Check tag type filter
+    // Check tag type filter
     const passesFilter = shouldDisplayTagByFilter(tagHeader.type);
     
     if (!passesFilter) {
@@ -392,6 +405,8 @@ function parseTagData(tagData) {
             parsedContent = spriteParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
           } else if (fontParser && isFontTag) {
             parsedContent = fontParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
+          } else if (textParser && isTextTag) {
+            parsedContent = textParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
           }
           
           if (parsedContent) {
@@ -406,7 +421,7 @@ function parseTagData(tagData) {
             if (parsedContent.data && Object.keys(parsedContent.data).length > 0) {
               output.push("Content:");
               
-              // FIXED: Safe content formatting with stack overflow protection
+              // Safe content formatting with stack overflow protection
               const formatContentDataSafe = (data, indent = "  ", depth = 0, visited = new WeakSet()) => {
                 // Prevent infinite recursion
                 if (depth > 10) {
@@ -527,6 +542,8 @@ function parseTagData(tagData) {
             parsedContent = spriteParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
           } else if (fontParser && isFontTag) {
             parsedContent = fontParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
+          } else if (textParser && isTextTag) {
+            parsedContent = textParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
           }
           
           // Check if the parsed content has an error
@@ -634,7 +651,7 @@ function parseTagData(tagData) {
     
     if (parsedContentTags === 0) {
       output.push("\nNo tags could be parsed for content.");
-      output.push("Supported tag types: Control, Display, Asset, Shape, Sprite, and Font tags");
+      output.push("Supported tag types: Control, Display, Asset, Shape, Sprite, Font, and Text tags");
     }
     
   } else if (window.showUnparsedOnly) {
@@ -682,7 +699,7 @@ function parseTagData(tagData) {
   return output;
 }
 
-// NEW: Helper function to describe current filter
+// Helper function to describe current filter
 function getFilterDescription() {
   if (!window.tagTypeFilter) {
     return "";
@@ -698,7 +715,8 @@ function getFilterDescription() {
       'asset': 'Asset Tags',
       'shape': 'Shape Tags',
       'sprite': 'Sprite Tags',
-      'font': 'Font Tags'
+      'font': 'Font Tags',
+      'text': 'Text Tags'
     };
     return ` (Filtered: ${categoryNames[window.tagTypeFilter.category]} only)`;
   }
