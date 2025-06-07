@@ -1,5 +1,5 @@
 /* 
- * SWF Tag Parser - v2.6
+ * SWF Tag Parser - v2.7
  * Supports:
  * - Tag header parsing (type and length)
  * - Short and long format tag headers
@@ -11,6 +11,7 @@
  * - Error-only mode (shows ONLY tags with parsing errors)
  * - FIXED: Stack overflow in content formatting
  * - ADDED: Font parsing support
+ * - ADDED: Tag type filtering for large SWF files
  */
 
 // Global variables for tag filtering
@@ -18,6 +19,7 @@ window.showAllTags = false;
 window.showContentParsing = false;
 window.showUnparsedOnly = false;
 window.showErrorsOnly = false;
+window.tagTypeFilter = null; // NEW: Tag type filtering
 
 // Tag name mapping
 const tagNames = {
@@ -119,6 +121,37 @@ const spriteTags = new Set([
 const fontTags = new Set([
   10, 13, 48, 62, 73, 75, 88, 90
 ]);
+
+// NEW: Function to check if tag should be displayed based on filter
+function shouldDisplayTagByFilter(tagType) {
+  if (!window.tagTypeFilter) {
+    return true; // No filter, show all
+  }
+  
+  if (window.tagTypeFilter.type === 'specific') {
+    return tagType === window.tagTypeFilter.tagType;
+  } else if (window.tagTypeFilter.type === 'category') {
+    const category = window.tagTypeFilter.category;
+    switch (category) {
+      case 'control':
+        return controlTags.has(tagType);
+      case 'display':
+        return displayTags.has(tagType);
+      case 'asset':
+        return assetTags.has(tagType);
+      case 'shape':
+        return shapeTags.has(tagType);
+      case 'sprite':
+        return spriteTags.has(tagType);
+      case 'font':
+        return fontTags.has(tagType);
+      default:
+        return true;
+    }
+  }
+  
+  return true;
+}
 
 function parseSWFTags(arrayBuffer) {
   const bytes = new Uint8Array(arrayBuffer);
@@ -278,7 +311,8 @@ function parseTagData(tagData) {
   
   // Different output format based on mode
   if (window.showContentParsing) {
-    output.push("Parsed Tag Content:");
+    const filterDescription = getFilterDescription();
+    output.push(`Parsed Tag Content${filterDescription}:`);
     output.push("==============================");
   } else if (window.showUnparsedOnly) {
     output.push("Unparsed Tags (Need Parser Development):");
@@ -298,6 +332,7 @@ function parseTagData(tagData) {
   let parsedContentTags = 0;
   let unparsedContentTags = 0;
   let errorContentTags = 0;
+  let skippedByFilter = 0;
   
   while (offset < tagData.length) {
     const tagHeader = parseTagHeader(tagData, offset);
@@ -319,6 +354,17 @@ function parseTagData(tagData) {
     const isSpriteTag = spriteTags.has(tagHeader.type);
     const isFontTag = fontTags.has(tagHeader.type);
     const canBeParsed = isControlTag || isDisplayTag || isAssetTag || isShapeTag || isSpriteTag || isFontTag;
+    
+    // NEW: Check tag type filter
+    const passesFilter = shouldDisplayTagByFilter(tagHeader.type);
+    
+    if (!passesFilter) {
+      skippedByFilter++;
+      // Move to next tag without processing
+      offset += tagHeader.headerSize + tagHeader.length;
+      tagIndex++;
+      continue;
+    }
     
     if (isUnknown) {
       unknownTags.add(tagHeader.type);
@@ -582,6 +628,10 @@ function parseTagData(tagData) {
     output.push(`Total tags scanned: ${tagIndex}`);
     output.push(`Tags with parsed content: ${parsedContentTags}`);
     
+    if (skippedByFilter > 0) {
+      output.push(`Tags filtered out: ${skippedByFilter}`);
+    }
+    
     if (parsedContentTags === 0) {
       output.push("\nNo tags could be parsed for content.");
       output.push("Supported tag types: Control, Display, Asset, Shape, Sprite, and Font tags");
@@ -630,6 +680,30 @@ function parseTagData(tagData) {
   }
   
   return output;
+}
+
+// NEW: Helper function to describe current filter
+function getFilterDescription() {
+  if (!window.tagTypeFilter) {
+    return "";
+  }
+  
+  if (window.tagTypeFilter.type === 'specific') {
+    const tagName = tagNames[window.tagTypeFilter.tagType] || `Type ${window.tagTypeFilter.tagType}`;
+    return ` (Filtered: ${tagName} only)`;
+  } else if (window.tagTypeFilter.type === 'category') {
+    const categoryNames = {
+      'control': 'Control Tags',
+      'display': 'Display Tags', 
+      'asset': 'Asset Tags',
+      'shape': 'Shape Tags',
+      'sprite': 'Sprite Tags',
+      'font': 'Font Tags'
+    };
+    return ` (Filtered: ${categoryNames[window.tagTypeFilter.category]} only)`;
+  }
+  
+  return "";
 }
 
 function parseTagHeader(data, offset) {
