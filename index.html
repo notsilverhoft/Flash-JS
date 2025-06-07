@@ -215,6 +215,7 @@
         <option value="font">Font Tags</option>
         <option value="text">Text Tags</option>
         <option value="bitmap">Bitmap Tags</option>
+        <option value="sound">Sound Tags</option>
       </select>
     </div>
 
@@ -286,6 +287,15 @@
           <option value="21">DefineBitsJPEG2 (21)</option>
           <option value="35">DefineBitsJPEG3 (35)</option>
           <option value="36">DefineBitsLossless2 (36)</option>
+        </optgroup>
+        <!-- Sound Tags -->
+        <optgroup label="Sound Tags">
+          <option value="14">DefineSound (14)</option>
+          <option value="15">StartSound (15)</option>
+          <option value="17">DefineButtonSound (17)</option>
+          <option value="18">SoundStreamHead (18)</option>
+          <option value="19">SoundStreamBlock (19)</option>
+          <option value="45">SoundStreamHead2 (45)</option>
         </optgroup>
       </select>
     </div>
@@ -526,6 +536,7 @@
   <script src="JS/parsers/FontParsers.js"></script>
   <script src="JS/parsers/TextParsers.js"></script>
   <script src="JS/parsers/BitmapParsers.js"></script>
+  <script src="JS/parsers/SoundParsers.js"></script>
   <script src="JS/TagParse.js"></script>
   
   <!-- Load Parse.js LAST as it runs commands from other files -->
