@@ -199,7 +199,7 @@
     <button class="button error-button" id="errorButton">Show Parser Errors</button>
   </div>
 
-  <!-- NEW: Tag Type Filtering Controls -->
+  <!-- Tag Type Filtering Controls -->
   <div class="filter-container hidden" id="filterContainer">
     <span class="filter-label">Filter by Tag Type:</span>
     
@@ -213,6 +213,7 @@
         <option value="shape">Shape Tags</option>
         <option value="sprite">Sprite Tags</option>
         <option value="font">Font Tags</option>
+        <option value="text">Text Tags</option>
       </select>
     </div>
 
@@ -270,6 +271,12 @@
           <option value="88">DefineFontName (88)</option>
           <option value="90">DefineFont4 (90)</option>
         </optgroup>
+        <!-- Text Tags -->
+        <optgroup label="Text Tags">
+          <option value="11">DefineText (11)</option>
+          <option value="33">DefineText2 (33)</option>
+          <option value="37">DefineEditText (37)</option>
+        </optgroup>
       </select>
     </div>
 
@@ -300,7 +307,7 @@
     window.showContentParsing = false;
     window.showUnparsedOnly = false;
     window.showErrorsOnly = false;
-    window.tagTypeFilter = null; // NEW: Tag type filtering
+    window.tagTypeFilter = null;
 
     // Add button functionality
     uploadButton.addEventListener('click', function() {
@@ -409,7 +416,7 @@
       reparseCurrentFile();
     });
 
-    // NEW: Filter functionality
+    // Filter functionality
     applyFilterButton.addEventListener('click', function() {
       const categoryValue = categoryFilter.value;
       const specificValue = specificTagFilter.value;
@@ -507,6 +514,7 @@
   <script src="JS/parsers/ShapeParsers.js"></script>
   <script src="JS/parsers/SpriteParsers.js"></script>
   <script src="JS/parsers/FontParsers.js"></script>
+  <script src="JS/parsers/TextParsers.js"></script>
   <script src="JS/TagParse.js"></script>
   
   <!-- Load Parse.js LAST as it runs commands from other files -->
