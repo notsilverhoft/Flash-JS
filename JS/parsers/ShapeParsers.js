@@ -1,8 +1,8 @@
 /* 
- * SWF Shape Definition Tags Parser - v1.1
+ * SWF Shape Definition Tags Parser - v1.3
  * Handles vector graphics definitions - the visual core of Flash content
  * DefineShape family (Tags 2, 22, 32, 83)
- * Fixed: formatRect function missing
+ * Fixed: Use DataTypes.formatRect for consistency
  */
 class ShapeParsers {
   constructor() {
@@ -49,7 +49,7 @@ class ShapeParsers {
         data: {
           shapeId: shapeId,
           bounds: shapeBounds,
-          boundsFormatted: this.formatRect(shapeBounds),
+          boundsFormatted: this.dataTypes.formatRect(shapeBounds), // FIXED: use dataTypes
           fillStyles: shapeData.fillStyles,
           lineStyles: shapeData.lineStyles,
           shapeRecords: shapeData.shapeRecords,
@@ -83,7 +83,7 @@ class ShapeParsers {
         data: {
           shapeId: shapeId,
           bounds: shapeBounds,
-          boundsFormatted: this.formatRect(shapeBounds),
+          boundsFormatted: this.dataTypes.formatRect(shapeBounds), // FIXED: use dataTypes
           fillStyles: shapeData.fillStyles,
           lineStyles: shapeData.lineStyles,
           shapeRecords: shapeData.shapeRecords,
@@ -117,7 +117,7 @@ class ShapeParsers {
         data: {
           shapeId: shapeId,
           bounds: shapeBounds,
-          boundsFormatted: this.formatRect(shapeBounds),
+          boundsFormatted: this.dataTypes.formatRect(shapeBounds), // FIXED: use dataTypes
           fillStyles: shapeData.fillStyles,
           lineStyles: shapeData.lineStyles,
           shapeRecords: shapeData.shapeRecords,
@@ -158,8 +158,8 @@ class ShapeParsers {
           shapeId: shapeId,
           bounds: shapeBounds,
           edgeBounds: edgeBounds,
-          boundsFormatted: this.formatRect(shapeBounds),
-          edgeBoundsFormatted: this.formatRect(edgeBounds),
+          boundsFormatted: this.dataTypes.formatRect(shapeBounds), // FIXED: use dataTypes
+          edgeBoundsFormatted: this.dataTypes.formatRect(edgeBounds), // FIXED: use dataTypes
           usesFillWindingRule: usesFillWindingRule,
           usesNonScalingStrokes: usesNonScalingStrokes,
           usesScalingStrokes: usesScalingStrokes,
@@ -672,18 +672,6 @@ class ShapeParsers {
   }
   
   // ==================== UTILITY METHODS ====================
-  
-  // Add the missing formatRect function
-  formatRect(rect) {
-    if (!rect || typeof rect !== 'object') {
-      return "Invalid rectangle";
-    }
-    
-    const width = (rect.xMax || 0) - (rect.xMin || 0);
-    const height = (rect.yMax || 0) - (rect.yMin || 0);
-    
-    return `${width}x${height} (${rect.xMin || 0}, ${rect.yMin || 0}) to (${rect.xMax || 0}, ${rect.yMax || 0})`;
-  }
   
   calculateComplexity(shapeData) {
     const fillCount = shapeData.fillStyles?.styles?.length || 0;
