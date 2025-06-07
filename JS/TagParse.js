@@ -1,5 +1,5 @@
 /* 
- * SWF Tag Parser - v2.8
+ * SWF Tag Parser - v2.9
  * Supports:
  * - Tag header parsing (type and length)
  * - Short and long format tag headers
@@ -12,6 +12,7 @@
  * - FIXED: Stack overflow in content formatting
  * - ADDED: Font parsing support
  * - ADDED: Text parsing support
+ * - ADDED: Bitmap parsing support
  * - ADDED: Tag type filtering for large SWF files
  */
 
@@ -90,7 +91,7 @@ const tagNames = {
 
 // Important tags that should always be shown
 const importantTags = new Set([
-  0, 1, 2, 4, 5, 9, 10, 11, 12, 22, 24, 26, 28, 32, 33, 37, 39, 43, 48, 56, 57, 59, 69, 75, 76, 77, 82, 83, 86, 90
+  0, 1, 2, 4, 5, 6, 8, 9, 10, 11, 12, 20, 21, 22, 24, 26, 28, 32, 33, 35, 36, 37, 39, 43, 48, 56, 57, 59, 69, 75, 76, 77, 82, 83, 86, 90
 ]);
 
 // Control tags that can be parsed for content
@@ -128,6 +129,11 @@ const textTags = new Set([
   11, 33, 37
 ]);
 
+// Bitmap tags that can be parsed for content
+const bitmapTags = new Set([
+  6, 8, 20, 21, 35, 36
+]);
+
 // Function to check if tag should be displayed based on filter
 function shouldDisplayTagByFilter(tagType) {
   if (!window.tagTypeFilter) {
@@ -153,6 +159,8 @@ function shouldDisplayTagByFilter(tagType) {
         return fontTags.has(tagType);
       case 'text':
         return textTags.has(tagType);
+      case 'bitmap':
+        return bitmapTags.has(tagType);
       default:
         return true;
     }
@@ -296,6 +304,7 @@ function parseTagData(tagData) {
   let spriteParser = null;
   let fontParser = null;
   let textParser = null;
+  let bitmapParser = null;
   
   if (window.showContentParsing || window.showErrorsOnly) {
     if (typeof ControlParsers !== 'undefined') {
@@ -318,6 +327,9 @@ function parseTagData(tagData) {
     }
     if (typeof TextParsers !== 'undefined') {
       textParser = new TextParsers();
+    }
+    if (typeof BitmapParsers !== 'undefined') {
+      bitmapParser = new BitmapParsers();
     }
   }
   
@@ -366,7 +378,8 @@ function parseTagData(tagData) {
     const isSpriteTag = spriteTags.has(tagHeader.type);
     const isFontTag = fontTags.has(tagHeader.type);
     const isTextTag = textTags.has(tagHeader.type);
-    const canBeParsed = isControlTag || isDisplayTag || isAssetTag || isShapeTag || isSpriteTag || isFontTag || isTextTag;
+    const isBitmapTag = bitmapTags.has(tagHeader.type);
+    const canBeParsed = isControlTag || isDisplayTag || isAssetTag || isShapeTag || isSpriteTag || isFontTag || isTextTag || isBitmapTag;
     
     // Check tag type filter
     const passesFilter = shouldDisplayTagByFilter(tagHeader.type);
@@ -407,6 +420,8 @@ function parseTagData(tagData) {
             parsedContent = fontParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
           } else if (textParser && isTextTag) {
             parsedContent = textParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
+          } else if (bitmapParser && isBitmapTag) {
+            parsedContent = bitmapParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
           }
           
           if (parsedContent) {
@@ -508,10 +523,11 @@ function parseTagData(tagData) {
         
         // Add some hints about what type of parser this might need
         const tagTypeHints = {
-          6: "Bitmap definition parser needed", 
           7: "Button definition parser needed",
           14: "Sound definition parser needed",
-          15: "Sound control parser needed"
+          15: "Sound control parser needed",
+          60: "Video stream parser needed",
+          61: "Video frame parser needed"
         };
         
         if (tagTypeHints[tagHeader.type]) {
@@ -544,6 +560,8 @@ function parseTagData(tagData) {
             parsedContent = fontParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
           } else if (textParser && isTextTag) {
             parsedContent = textParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
+          } else if (bitmapParser && isBitmapTag) {
+            parsedContent = bitmapParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
           }
           
           // Check if the parsed content has an error
@@ -651,7 +669,7 @@ function parseTagData(tagData) {
     
     if (parsedContentTags === 0) {
       output.push("\nNo tags could be parsed for content.");
-      output.push("Supported tag types: Control, Display, Asset, Shape, Sprite, Font, and Text tags");
+      output.push("Supported tag types: Control, Display, Asset, Shape, Sprite, Font, Text, and Bitmap tags");
     }
     
   } else if (window.showUnparsedOnly) {
@@ -716,7 +734,8 @@ function getFilterDescription() {
       'shape': 'Shape Tags',
       'sprite': 'Sprite Tags',
       'font': 'Font Tags',
-      'text': 'Text Tags'
+      'text': 'Text Tags',
+      'bitmap': 'Bitmap Tags'
     };
     return ` (Filtered: ${categoryNames[window.tagTypeFilter.category]} only)`;
   }
