@@ -447,13 +447,12 @@
       if (window.showErrorsOnly) {
         errorButton.textContent = 'Show All Tags';
         errorButton.classList.add('active');
+        // Show filter controls when in error mode
+        filterContainer.classList.remove('hidden');
         // Hide other buttons when in error mode
         toggleButton.style.display = 'none';
         contentButton.style.display = 'none';
         unparsedButton.style.display = 'none';
-        filterContainer.classList.add('hidden');
-        // Reset filter when entering error mode
-        resetFilterUI();
         // Reset other modes
         window.showContentParsing = false;
         window.showUnparsedOnly = false;
@@ -462,6 +461,10 @@
       } else {
         errorButton.textContent = 'Show Parser Errors';
         errorButton.classList.remove('active');
+        // Hide filter controls when not in error mode
+        filterContainer.classList.add('hidden');
+        // Reset filter when leaving error mode
+        resetFilterUI();
         // Show other buttons when back to normal mode
         toggleButton.style.display = 'inline-block';
         contentButton.style.display = 'inline-block';
