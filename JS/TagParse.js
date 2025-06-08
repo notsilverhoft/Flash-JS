@@ -20,6 +20,7 @@
  * - ADDED: ActionScript tag filtering support
  * - ADDED: Tag type filtering for large SWF files
  * - FIXED: Tag filters persisting across modes
+ * - ADDED: Tag type filtering for error mode
  */
 
 // Global variables for tag filtering
@@ -167,8 +168,8 @@ const morphTags = new Set([
 
 // Function to check if tag should be displayed based on filter
 function shouldDisplayTagByFilter(tagType) {
-  // Only apply tag type filters when in content parsing mode
-  if (!window.showContentParsing || !window.tagTypeFilter) {
+  // Only apply tag type filters when in content parsing mode or error mode
+  if ((!window.showContentParsing && !window.showErrorsOnly) || !window.tagTypeFilter) {
     return true; // No filter, show all
   }
   
@@ -400,7 +401,8 @@ function parseTagData(tagData) {
     output.push("Unparsed Tags (Need Parser Development):");
     output.push("========================================");
   } else if (window.showErrorsOnly) {
-    output.push("Parser Errors (Tags with Parsing Issues):");
+    const filterDescription = getFilterDescription();
+    output.push(`Parser Errors (Tags with Parsing Issues)${filterDescription}:`);
     output.push("==========================================");
   } else {
     output.push(`Tag Headers (${window.showAllTags ? 'All' : 'Important'} Tags):`);
@@ -765,6 +767,10 @@ function parseTagData(tagData) {
     output.push(`\n==========================================`);
     output.push(`Total tags scanned: ${tagIndex}`);
     output.push(`Tags with parser errors: ${errorContentTags}`);
+    
+    if (skippedByFilter > 0) {
+      output.push(`Tags filtered out: ${skippedByFilter}`);
+    }
     
     if (errorContentTags === 0) {
       output.push("\nNo parsing errors detected!");
