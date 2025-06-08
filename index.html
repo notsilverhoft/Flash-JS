@@ -352,6 +352,13 @@
     window.showErrorsOnly = false;
     window.tagTypeFilter = null;
 
+    // Helper function to reset filter UI
+    function resetFilterUI() {
+      categoryFilter.value = 'all';
+      specificTagFilter.value = 'all';
+      window.tagTypeFilter = null;
+    }
+
     // Add button functionality
     uploadButton.addEventListener('click', function() {
       fileInput.click();
@@ -389,6 +396,8 @@
         contentButton.classList.remove('active');
         // Hide filter controls when not in content mode
         filterContainer.classList.add('hidden');
+        // Reset filter when leaving content mode
+        resetFilterUI();
         // Show other buttons when back in header mode
         toggleButton.style.display = 'inline-block';
         unparsedButton.style.display = 'inline-block';
@@ -411,6 +420,8 @@
         contentButton.style.display = 'none';
         errorButton.style.display = 'none';
         filterContainer.classList.add('hidden');
+        // Reset filter when entering unparsed mode
+        resetFilterUI();
         // Reset other modes
         window.showContentParsing = false;
         window.showErrorsOnly = false;
@@ -441,6 +452,8 @@
         contentButton.style.display = 'none';
         unparsedButton.style.display = 'none';
         filterContainer.classList.add('hidden');
+        // Reset filter when entering error mode
+        resetFilterUI();
         // Reset other modes
         window.showContentParsing = false;
         window.showUnparsedOnly = false;
