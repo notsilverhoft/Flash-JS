@@ -19,6 +19,7 @@
  * - ADDED: Morph shape parsing support
  * - ADDED: ActionScript tag filtering support
  * - ADDED: Tag type filtering for large SWF files
+ * - FIXED: Tag filters persisting across modes
  */
 
 // Global variables for tag filtering
@@ -166,7 +167,8 @@ const morphTags = new Set([
 
 // Function to check if tag should be displayed based on filter
 function shouldDisplayTagByFilter(tagType) {
-  if (!window.tagTypeFilter) {
+  // Only apply tag type filters when in content parsing mode
+  if (!window.showContentParsing || !window.tagTypeFilter) {
     return true; // No filter, show all
   }
   
