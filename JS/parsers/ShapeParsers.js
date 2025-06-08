@@ -2,7 +2,7 @@
  * SWF Shape Definition Tags Parser - v1.3
  * Handles vector graphics definitions - the visual core of Flash content
  * DefineShape family (Tags 2, 22, 32, 83)
- * Fixed: Use DataTypes.formatRect for consistency
+ * Fixed: Use DataTypes.formatRECT for consistency
  */
 class ShapeParsers {
   constructor() {
@@ -49,7 +49,7 @@ class ShapeParsers {
         data: {
           shapeId: shapeId,
           bounds: shapeBounds,
-          boundsFormatted: this.dataTypes.formatRect(shapeBounds), // FIXED: use dataTypes
+          boundsFormatted: this.dataTypes.formatRECT(shapeBounds), // FIXED: use formatRECT
           fillStyles: shapeData.fillStyles,
           lineStyles: shapeData.lineStyles,
           shapeRecords: shapeData.shapeRecords,
@@ -83,7 +83,7 @@ class ShapeParsers {
         data: {
           shapeId: shapeId,
           bounds: shapeBounds,
-          boundsFormatted: this.dataTypes.formatRect(shapeBounds), // FIXED: use dataTypes
+          boundsFormatted: this.dataTypes.formatRECT(shapeBounds), // FIXED: use formatRECT
           fillStyles: shapeData.fillStyles,
           lineStyles: shapeData.lineStyles,
           shapeRecords: shapeData.shapeRecords,
@@ -117,7 +117,7 @@ class ShapeParsers {
         data: {
           shapeId: shapeId,
           bounds: shapeBounds,
-          boundsFormatted: this.dataTypes.formatRect(shapeBounds), // FIXED: use dataTypes
+          boundsFormatted: this.dataTypes.formatRECT(shapeBounds), // FIXED: use formatRECT
           fillStyles: shapeData.fillStyles,
           lineStyles: shapeData.lineStyles,
           shapeRecords: shapeData.shapeRecords,
@@ -158,8 +158,8 @@ class ShapeParsers {
           shapeId: shapeId,
           bounds: shapeBounds,
           edgeBounds: edgeBounds,
-          boundsFormatted: this.dataTypes.formatRect(shapeBounds), // FIXED: use dataTypes
-          edgeBoundsFormatted: this.dataTypes.formatRect(edgeBounds), // FIXED: use dataTypes
+          boundsFormatted: this.dataTypes.formatRECT(shapeBounds), // FIXED: use formatRECT
+          edgeBoundsFormatted: this.dataTypes.formatRECT(edgeBounds), // FIXED: use formatRECT
           usesFillWindingRule: usesFillWindingRule,
           usesNonScalingStrokes: usesNonScalingStrokes,
           usesScalingStrokes: usesScalingStrokes,
