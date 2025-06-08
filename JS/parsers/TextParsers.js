@@ -182,7 +182,7 @@ class TextParsers {
         leftMargin = this.dataTypes.parseUI16(reader);
         rightMargin = this.dataTypes.parseUI16(reader);
         indent = this.dataTypes.parseUI16(reader);
-        leading = this.dataTypes.parseSI16(reader);
+        leading = this.dataTypes.parseS16(reader);
       }
       
       const variableName = this.dataTypes.parseString(reader);
@@ -310,11 +310,11 @@ class TextParsers {
         }
         
         if (styleFlagsHasXOffset) {
-          record.xOffset = this.dataTypes.parseSI16(reader);
+          record.xOffset = this.dataTypes.parseS16(reader);
         }
         
         if (styleFlagsHasYOffset) {
-          record.yOffset = this.dataTypes.parseSI16(reader);
+          record.yOffset = this.dataTypes.parseS16(reader);
         }
         
         if (styleFlagsHasFont) {
