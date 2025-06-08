@@ -385,7 +385,7 @@ class FontParsers {
       const fontFlagsItalic = (flags & 0x02) !== 0;
       const fontFlagsBold = (flags & 0x01) !== 0;
       
-      const fontName = this.dataTypes.parseSTRING(reader);
+      const fontName = this.dataTypes.parseString(reader);
       
       let fontDataInfo = null;
       if (fontFlagsHasFontData) {
@@ -457,8 +457,8 @@ class FontParsers {
   parseDefineFontName(reader, length) {
     try {
       const fontId = this.dataTypes.parseUI16(reader);
-      const fontName = this.dataTypes.parseSTRING(reader);
-      const fontCopyright = this.dataTypes.parseSTRING(reader);
+      const fontName = this.dataTypes.parseString(reader);
+      const fontCopyright = this.dataTypes.parseString(reader);
       
       return {
         tagType: "DefineFontName",
