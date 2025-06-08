@@ -159,7 +159,7 @@ class TextParsers {
       
       let fontClass = null;
       if (hasFontClass) {
-        fontClass = this.dataTypes.parseSTRING(reader);
+        fontClass = this.dataTypes.parseString(reader);
       }
       
       let textColor = null;
@@ -185,11 +185,11 @@ class TextParsers {
         leading = this.dataTypes.parseSI16(reader);
       }
       
-      const variableName = this.dataTypes.parseSTRING(reader);
+      const variableName = this.dataTypes.parseString(reader);
       
       let initialText = null;
       if (hasText) {
-        initialText = this.dataTypes.parseSTRING(reader);
+        initialText = this.dataTypes.parseString(reader);
       }
       
       return {
