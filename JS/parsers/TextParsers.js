@@ -53,7 +53,7 @@ class TextParsers {
         data: {
           characterId: characterId,
           bounds: textBounds,
-          boundsFormatted: this.dataTypes.formatRect(textBounds),
+          boundsFormatted: this.dataTypes.formatRECT(textBounds),
           matrix: textMatrix,
           matrixFormatted: this.dataTypes.formatMatrix(textMatrix),
           glyphBits: glyphBits,
@@ -94,7 +94,7 @@ class TextParsers {
         data: {
           characterId: characterId,
           bounds: textBounds,
-          boundsFormatted: this.dataTypes.formatRect(textBounds),
+          boundsFormatted: this.dataTypes.formatRECT(textBounds),
           matrix: textMatrix,
           matrixFormatted: this.dataTypes.formatMatrix(textMatrix),
           glyphBits: glyphBits,
@@ -198,7 +198,7 @@ class TextParsers {
         data: {
           characterId: characterId,
           bounds: bounds,
-          boundsFormatted: this.dataTypes.formatRect(bounds),
+          boundsFormatted: this.dataTypes.formatRECT(bounds),
           properties: {
             hasText,
             wordWrap,
