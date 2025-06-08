@@ -1,5 +1,5 @@
 /* 
- * SWF Tag Parser - v3.0
+ * SWF Tag Parser - v3.1
  * Supports:
  * - Tag header parsing (type and length)
  * - Short and long format tag headers
@@ -21,6 +21,8 @@
  * - ADDED: Tag type filtering for large SWF files
  * - FIXED: Tag filters persisting across modes
  * - ADDED: Tag type filtering for error mode
+ * - ENHANCED: Added PlaceObject3 support (Tag 70)
+ * - ADDED: Scaling grid parsing support (Tag 78)
  */
 
 // Global variables for tag filtering
@@ -80,6 +82,7 @@ const tagNames = {
   65: "ScriptLimits",
   66: "SetTabIndex",
   69: "FileAttributes",
+  70: "PlaceObject3",
   71: "ImportAssets2",
   73: "DefineFontAlignZones",
   74: "CSMTextSettings",
@@ -98,7 +101,7 @@ const tagNames = {
 
 // Important tags that should always be shown
 const importantTags = new Set([
-  0, 1, 2, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 15, 17, 18, 19, 20, 21, 22, 23, 24, 26, 28, 32, 33, 34, 35, 36, 37, 39, 43, 45, 46, 48, 56, 57, 59, 60, 61, 69, 75, 76, 77, 82, 83, 84, 86, 90
+  0, 1, 2, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 15, 17, 18, 19, 20, 21, 22, 23, 24, 26, 28, 32, 33, 34, 35, 36, 37, 39, 43, 45, 46, 48, 56, 57, 59, 60, 61, 69, 70, 75, 76, 77, 78, 82, 83, 84, 86, 90
 ]);
 
 // Control tags that can be parsed for content
@@ -108,7 +111,7 @@ const controlTags = new Set([
 
 // Display tags that can be parsed for content
 const displayTags = new Set([
-  4, 5, 26, 28
+  4, 5, 26, 28, 70
 ]);
 
 // Asset tags that can be parsed for content
@@ -166,6 +169,11 @@ const morphTags = new Set([
   46, 84
 ]);
 
+// Scaling tags that can be parsed for content
+const scalingTags = new Set([
+  78
+]);
+
 // Function to check if tag should be displayed based on filter
 function shouldDisplayTagByFilter(tagType) {
   // Only apply tag type filters when in content parsing mode or error mode
@@ -204,6 +212,8 @@ function shouldDisplayTagByFilter(tagType) {
         return videoTags.has(tagType);
       case 'morph':
         return morphTags.has(tagType);
+      case 'scaling':
+        return scalingTags.has(tagType);
       default:
         return true;
     }
@@ -352,6 +362,7 @@ function parseTagData(tagData) {
   let buttonParser = null;
   let videoParser = null;
   let morphParser = null;
+  let scalingParser = null;
   
   if (window.showContentParsing || window.showErrorsOnly) {
     if (typeof ControlParsers !== 'undefined') {
@@ -389,6 +400,9 @@ function parseTagData(tagData) {
     }
     if (typeof MorphParsers !== 'undefined') {
       morphParser = new MorphParsers();
+    }
+    if (typeof ScalingParsers !== 'undefined') {
+      scalingParser = new ScalingParsers();
     }
   }
   
@@ -444,7 +458,8 @@ function parseTagData(tagData) {
     const isButtonTag = buttonTags.has(tagHeader.type);
     const isVideoTag = videoTags.has(tagHeader.type);
     const isMorphTag = morphTags.has(tagHeader.type);
-    const canBeParsed = isControlTag || isDisplayTag || isAssetTag || isActionScriptTag || isShapeTag || isSpriteTag || isFontTag || isTextTag || isBitmapTag || isSoundTag || isButtonTag || isVideoTag || isMorphTag;
+    const isScalingTag = scalingTags.has(tagHeader.type);
+    const canBeParsed = isControlTag || isDisplayTag || isAssetTag || isActionScriptTag || isShapeTag || isSpriteTag || isFontTag || isTextTag || isBitmapTag || isSoundTag || isButtonTag || isVideoTag || isMorphTag || isScalingTag;
     
     // Check tag type filter
     const passesFilter = shouldDisplayTagByFilter(tagHeader.type);
@@ -495,6 +510,8 @@ function parseTagData(tagData) {
             parsedContent = videoParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
           } else if (morphParser && isMorphTag) {
             parsedContent = morphParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
+          } else if (scalingParser && isScalingTag) {
+            parsedContent = scalingParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
           }
           
           if (parsedContent) {
@@ -596,7 +613,6 @@ function parseTagData(tagData) {
         
         // Add some hints about what type of parser this might need
         const tagTypeHints = {
-          78: "Scaling grid parser needed",
           87: "Binary data parser needed"
         };
         
@@ -640,6 +656,8 @@ function parseTagData(tagData) {
             parsedContent = videoParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
           } else if (morphParser && isMorphTag) {
             parsedContent = morphParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
+          } else if (scalingParser && isScalingTag) {
+            parsedContent = scalingParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
           }
           
           // Check if the parsed content has an error
@@ -747,7 +765,7 @@ function parseTagData(tagData) {
     
     if (parsedContentTags === 0) {
       output.push("\nNo tags could be parsed for content.");
-      output.push("Supported tag types: Control, Display, Asset, ActionScript, Shape, Sprite, Font, Text, Bitmap, Sound, Button, Video, and Morph tags");
+      output.push("Supported tag types: Control, Display, Asset, ActionScript, Shape, Sprite, Font, Text, Bitmap, Sound, Button, Video, Morph, and Scaling tags");
     }
     
   } else if (window.showUnparsedOnly) {
@@ -822,7 +840,8 @@ function getFilterDescription() {
       'sound': 'Sound Tags',
       'button': 'Button Tags',
       'video': 'Video Tags',
-      'morph': 'Morph Shape Tags'
+      'morph': 'Morph Shape Tags',
+      'scaling': 'Scaling Tags'
     };
     return ` (Filtered: ${categoryNames[window.tagTypeFilter.category]} only)`;
   }
