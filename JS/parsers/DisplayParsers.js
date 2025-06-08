@@ -151,7 +151,7 @@ class DisplayParsers {
       
       let name = null;
       if (hasName) {
-        name = this.dataTypes.parseSTRING(reader);
+        name = this.dataTypes.parseString(reader);
       }
       
       let clipDepth = null;
