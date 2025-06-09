@@ -2,8 +2,8 @@
  * WebGL Flash Game Renderer for Flash-JS Repository
  * Integrates with Parse.js webpage terminal output for debugging
  * Optimized for big Flash games performance
- * PHASE 2: Fixed shape-display object linking for Flash-JS ShapeParsers and DisplayParsers
- * FIXED: Display objects now properly link to shape definitions
+ * PHASE 2: Fixed shape rendering integration with Flash-JS ShapeParsers and DisplayParsers
+ * FIXED: Auto-create display objects for all parsed shapes when no display list found
  */
 
 class WebGLFlashRenderer {
@@ -237,12 +237,9 @@ class WebGLFlashRenderer {
             // Analyze shape-display object linking
             this.analyzeShapeDisplayLinking();
             
-            // Create fallback display objects if shapes exist but no display objects reference them
-            this.createMissingDisplayObjects();
+            // Create display objects for ALL shapes since this SWF doesn't use PlaceObject tags
+            this.createDisplayObjectsForAllShapes();
 
-            // Always create a test shape for debugging
-            this.createTestShape();
-            
             // Debug log all objects
             this.debugLogAllObjects();
 
@@ -295,12 +292,10 @@ class WebGLFlashRenderer {
                     
                 case 'ZWS':
                     this.logToTerminal('LZMA decompression not yet supported for direct rendering');
-                    this.createTestShape();
                     return;
                     
                 default:
                     this.logToTerminal(`Unknown SWF format: ${signature}`);
-                    this.createTestShape();
                     return;
             }
             
@@ -327,11 +322,8 @@ class WebGLFlashRenderer {
             
             const contentOffset = offset + tagHeader.headerSize;
             
-            this.logToTerminal(`Tag ${tagIndex}: Type ${tagHeader.type}, Length ${tagHeader.length}`);
-            
             // Process shape definition tags
             if ([2, 22, 32, 83].includes(tagHeader.type)) {
-                this.logToTerminal(`Found shape definition tag ${tagHeader.type}`);
                 if (this.shapeParsers) {
                     try {
                         const parsedShape = this.shapeParsers.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
@@ -347,7 +339,6 @@ class WebGLFlashRenderer {
             
             // Process display list tags
             if ([4, 26, 70].includes(tagHeader.type)) {
-                this.logToTerminal(`Found display list tag ${tagHeader.type}`);
                 if (this.displayParsers) {
                     try {
                         const parsedDisplay = this.displayParsers.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
@@ -418,7 +409,7 @@ class WebGLFlashRenderer {
     }
 
     processShapeForRendering(shapeData) {
-        this.logToTerminal(`=== PROCESSING SHAPE ${shapeData.shapeId} ===`);
+        this.logToTerminal(`Processing shape for rendering: ID ${shapeData.shapeId}`);
         
         // Extract shape bounds and create renderable geometry
         const bounds = this.extractShapeBounds(shapeData);
@@ -432,21 +423,19 @@ class WebGLFlashRenderer {
         
         // Ensure we have a visible rectangle within the stage
         if (x2 <= x1 || Math.abs(x2 - x1) < 5) {
-            x1 = 50 + (shapeData.shapeId * 30) % (this.stageWidth - 150);
-            x2 = x1 + 100;
+            x1 = 50 + (shapeData.shapeId * 15) % (this.stageWidth - 150);
+            x2 = x1 + 60;
         }
         if (y2 <= y1 || Math.abs(y2 - y1) < 5) {
-            y1 = 50 + (shapeData.shapeId * 30) % (this.stageHeight - 150);
-            y2 = y1 + 80;
+            y1 = 50 + (shapeData.shapeId * 15) % (this.stageHeight - 150);
+            y2 = y1 + 40;
         }
         
         // Clamp to stage bounds
-        x1 = Math.max(10, Math.min(x1, this.stageWidth - 110));
-        y1 = Math.max(10, Math.min(y1, this.stageHeight - 90));
-        x2 = Math.max(x1 + 100, Math.min(x2, this.stageWidth - 10));
-        y2 = Math.max(y1 + 80, Math.min(y2, this.stageHeight - 10));
-        
-        this.logToTerminal(`Shape ${shapeData.shapeId} coordinates: (${x1.toFixed(1)}, ${y1.toFixed(1)}) to (${x2.toFixed(1)}, ${y2.toFixed(1)})`);
+        x1 = Math.max(10, Math.min(x1, this.stageWidth - 70));
+        y1 = Math.max(10, Math.min(y1, this.stageHeight - 50));
+        x2 = Math.max(x1 + 60, Math.min(x2, this.stageWidth - 10));
+        y2 = Math.max(y1 + 40, Math.min(y2, this.stageHeight - 10));
         
         // Create two triangles for rectangle
         const vertices = new Float32Array([
@@ -478,7 +467,7 @@ class WebGLFlashRenderer {
         
         this.shapes.set(shapeData.shapeId, renderableShape);
         
-        this.logToTerminal(`Shape ${shapeData.shapeId} created and stored`);
+        this.logToTerminal(`Shape ${shapeData.shapeId} created: (${x1.toFixed(1)}, ${y1.toFixed(1)}) to (${x2.toFixed(1)}, ${y2.toFixed(1)})`);
     }
 
     extractShapeBounds(shapeData) {
@@ -505,7 +494,7 @@ class WebGLFlashRenderer {
                     r: (firstFill.color.red || 128) / 255,
                     g: (firstFill.color.green || 128) / 255,
                     b: (firstFill.color.blue || 255) / 255,
-                    a: (firstFill.color.alpha !== undefined ? firstFill.color.alpha : 255) / 255
+                    a: Math.max(0.3, (firstFill.color.alpha !== undefined ? firstFill.color.alpha : 255) / 255) // Minimum 30% alpha for visibility
                 };
             }
         }
@@ -541,12 +530,10 @@ class WebGLFlashRenderer {
     }
 
     processDisplayObjectForRendering(displayData) {
-        this.logToTerminal(`=== PROCESSING DISPLAY OBJECT ===`);
+        this.logToTerminal(`Processing display object: Character ${displayData.characterId} at depth ${displayData.depth}`);
         
         const depth = displayData.depth;
         const characterId = displayData.characterId;
-        
-        this.logToTerminal(`Display object: Character ${characterId} at depth ${depth}`);
         
         // Create display object with transform matrix
         const displayObject = {
@@ -591,48 +578,59 @@ class WebGLFlashRenderer {
         const availableShapeIds = Array.from(this.shapes.keys());
         const referencedCharacterIds = Array.from(this.displayObjectCharacterIds);
         
-        this.logToTerminal(`Available shape IDs: [${availableShapeIds.join(', ')}]`);
-        this.logToTerminal(`Referenced character IDs: [${referencedCharacterIds.join(', ')}]`);
+        this.logToTerminal(`Available shape IDs: [${availableShapeIds.slice(0, 10).join(', ')}${availableShapeIds.length > 10 ? '...' : ''}] (${availableShapeIds.length} total)`);
+        this.logToTerminal(`Referenced character IDs: [${referencedCharacterIds.join(', ')}] (${referencedCharacterIds.length} total)`);
         
-        // Check for matches
-        const matches = availableShapeIds.filter(id => referencedCharacterIds.includes(id));
-        const unlinkedShapes = availableShapeIds.filter(id => !referencedCharacterIds.includes(id));
-        const missingShapes = referencedCharacterIds.filter(id => !availableShapeIds.includes(id));
-        
-        this.logToTerminal(`Linked shapes: [${matches.join(', ')}]`);
-        this.logToTerminal(`Unlinked shapes: [${unlinkedShapes.join(', ')}]`);
-        this.logToTerminal(`Missing shapes: [${missingShapes.join(', ')}]`);
+        if (referencedCharacterIds.length === 0) {
+            this.logToTerminal('NO DISPLAY OBJECTS FOUND - Will create display objects for all shapes');
+        }
     }
 
-    createMissingDisplayObjects() {
-        this.logToTerminal('=== CREATING MISSING DISPLAY OBJECTS ===');
+    createDisplayObjectsForAllShapes() {
+        this.logToTerminal('=== CREATING DISPLAY OBJECTS FOR ALL SHAPES ===');
         
-        // Create display objects for shapes that don't have them
-        const availableShapeIds = Array.from(this.shapes.keys());
-        const referencedCharacterIds = Array.from(this.displayObjectCharacterIds);
-        
+        const availableShapeIds = Array.from(this.shapes.keys()).filter(id => id !== 999); // Exclude test shape
         let createdCount = 0;
-        let nextDepth = Math.max(...Array.from(this.displayList.keys()), 0) + 1;
+        let depth = 1;
         
-        for (const shapeId of availableShapeIds) {
-            if (!referencedCharacterIds.includes(shapeId)) {
-                // Create a display object for this unlinked shape
-                const displayObject = {
-                    characterId: shapeId,
-                    depth: nextDepth,
-                    matrix: this.createIdentityMatrix(),
-                    visible: true
-                };
-                
-                this.displayList.set(nextDepth, displayObject);
-                this.logToTerminal(`Created display object for shape ${shapeId} at depth ${nextDepth}`);
-                
-                nextDepth++;
-                createdCount++;
-            }
+        // Create a grid layout for all shapes
+        const cols = Math.ceil(Math.sqrt(availableShapeIds.length));
+        const rows = Math.ceil(availableShapeIds.length / cols);
+        const cellWidth = this.stageWidth / cols;
+        const cellHeight = this.stageHeight / rows;
+        
+        this.logToTerminal(`Creating ${availableShapeIds.length} display objects in ${cols}x${rows} grid`);
+        
+        for (let i = 0; i < availableShapeIds.length; i++) {
+            const shapeId = availableShapeIds[i];
+            const col = i % cols;
+            const row = Math.floor(i / cols);
+            
+            // Calculate position in grid
+            const x = col * cellWidth + cellWidth * 0.1;
+            const y = row * cellHeight + cellHeight * 0.1;
+            
+            // Create transform matrix with position
+            const matrix = new Float32Array(16);
+            this.setIdentityMatrix(matrix);
+            matrix[12] = x; // X translation
+            matrix[13] = y; // Y translation
+            
+            const displayObject = {
+                characterId: shapeId,
+                depth: depth,
+                matrix: matrix,
+                visible: true
+            };
+            
+            this.displayList.set(depth, displayObject);
+            this.logToTerminal(`Created display object for shape ${shapeId} at depth ${depth}, position (${x.toFixed(1)}, ${y.toFixed(1)})`);
+            
+            depth++;
+            createdCount++;
         }
         
-        this.logToTerminal(`Created ${createdCount} missing display objects`);
+        this.logToTerminal(`Created ${createdCount} display objects for all shapes`);
     }
 
     setupViewportFromSignature(signatureData) {
@@ -654,50 +652,6 @@ class WebGLFlashRenderer {
         }
     }
 
-    createTestShape() {
-        // Create a test shape for debugging visibility
-        this.logToTerminal('=== CREATING TEST SHAPE ===');
-        
-        const vertices = new Float32Array([
-            300, 50,     // Triangle 1: Bottom left
-            400, 50,     // Bottom right
-            300, 130,    // Top left
-            
-            400, 50,     // Triangle 2: Bottom right
-            400, 130,    // Top right
-            300, 130     // Top left
-        ]);
-        
-        const colors = new Float32Array([
-            1.0, 0.0, 0.0, 1.0,  // Red
-            0.0, 1.0, 0.0, 1.0,  // Green
-            0.0, 0.0, 1.0, 1.0,  // Blue
-            0.0, 1.0, 0.0, 1.0,  // Green
-            1.0, 1.0, 0.0, 1.0,  // Yellow
-            0.0, 0.0, 1.0, 1.0   // Blue
-        ]);
-        
-        const testShape = {
-            vertices: vertices,
-            colors: colors,
-            primitiveType: this.gl.TRIANGLES,
-            vertexCount: 6
-        };
-        
-        this.shapes.set(999, testShape);
-        
-        const testDisplayObject = {
-            characterId: 999,
-            depth: 9999,
-            matrix: this.createIdentityMatrix(),
-            visible: true
-        };
-        
-        this.displayList.set(9999, testDisplayObject);
-        
-        this.logToTerminal('Test shape created at (300,50) to (400,130) with rainbow colors');
-    }
-
     createIdentityMatrix() {
         const matrix = new Float32Array(16);
         this.setIdentityMatrix(matrix);
@@ -707,13 +661,14 @@ class WebGLFlashRenderer {
     debugLogAllObjects() {
         this.logToTerminal('=== DEBUG: ALL OBJECTS ===');
         this.logToTerminal(`Shapes in map: ${this.shapes.size}`);
-        for (const [id, shape] of this.shapes.entries()) {
-            this.logToTerminal(`  Shape ${id}: ${shape.vertexCount} vertices`);
-        }
         
         this.logToTerminal(`Display objects in map: ${this.displayList.size}`);
-        for (const [depth, obj] of this.displayList.entries()) {
+        const displayObjects = Array.from(this.displayList.entries()).slice(0, 5);
+        for (const [depth, obj] of displayObjects) {
             this.logToTerminal(`  Depth ${depth}: Character ${obj.characterId}, Visible: ${obj.visible}`);
+        }
+        if (this.displayList.size > 5) {
+            this.logToTerminal(`  ... and ${this.displayList.size - 5} more display objects`);
         }
     }
 
