@@ -23,6 +23,7 @@
  * - ADDED: Tag type filtering for error mode
  * - ENHANCED: Added PlaceObject3 support (Tag 70)
  * - ADDED: Scaling grid parsing support (Tag 78)
+ * - ENHANCED: Added AS3Parsers integration for comprehensive ActionScript 3.0 support
  */
 
 // Global variables for tag filtering
