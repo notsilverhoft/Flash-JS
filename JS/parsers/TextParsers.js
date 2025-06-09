@@ -9,6 +9,12 @@ class TextParsers {
     this.dataTypes = new SWFDataTypes();
   }
   
+  // Helper method to parse signed 16-bit integer
+  parseSI16(reader) {
+    const value = this.dataTypes.parseUI16(reader);
+    return value > 32767 ? value - 65536 : value;
+  }
+  
   // ==================== TAG PARSING DISPATCHER ====================
   
   parseTag(tagType, tagData, offset, length) {
@@ -161,7 +167,7 @@ class TextParsers {
         leftMargin = this.dataTypes.parseUI16(reader);
         rightMargin = this.dataTypes.parseUI16(reader);
         indent = this.dataTypes.parseUI16(reader);
-        leading = this.dataTypes.parseI16(reader);
+        leading = this.parseSI16(reader);
       }
       
       let variableName = null;
@@ -257,8 +263,8 @@ class TextParsers {
       const gridFit = (flagsByte >> 3) & 0x07;
       const reserved1 = flagsByte & 0x07;
       
-      const thickness = this.dataTypes.parseFLOAT(reader);
-      const sharpness = this.dataTypes.parseFLOAT(reader);
+      const thickness = this.dataTypes.parseFIXED(reader);
+      const sharpness = this.dataTypes.parseFIXED(reader);
       const reserved2 = this.dataTypes.parseUI8(reader);
       
       // Analyze text quality settings
@@ -374,12 +380,12 @@ class TextParsers {
           
           let xOffset = null;
           if (hasXOffset) {
-            xOffset = this.dataTypes.parseI16(reader);
+            xOffset = this.parseSI16(reader);
           }
           
           let yOffset = null;
           if (hasYOffset) {
-            yOffset = this.dataTypes.parseI16(reader);
+            yOffset = this.parseSI16(reader);
           }
           
           records.push({
@@ -390,7 +396,7 @@ class TextParsers {
             hasYOffset,
             fontId,
             fontSize,
-            color: color ? (hasAlpha ? this.dataTypes.formatColor(color) : this.dataTypes.formatRGB(color)) : null,
+            color: color ? (hasAlpha ? this.dataTypes.formatColor(color) : this.dataTypes.formatColor(color)) : null,
             xOffset,
             yOffset
           });
