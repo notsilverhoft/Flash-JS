@@ -3,6 +3,7 @@
  * Integrates with Parse.js webpage terminal output for debugging
  * Optimized for big Flash games performance
  * PHASE 2: Fixed shape rendering integration with Flash-JS ShapeParsers and DisplayParsers
+ * DEBUGGING: Enhanced logging to Parse.js terminal to diagnose rendering issues
  */
 
 class WebGLFlashRenderer {
@@ -33,13 +34,17 @@ class WebGLFlashRenderer {
         this.stageWidth = 550;
         this.stageHeight = 400;
         
+        // Debugging state
+        this.debugMode = true;
+        this.renderAttempts = 0;
+        
         this.initialize();
     }
 
     initialize() {
         try {
             // Initialize WebGL context
-            this.gl = this.canvas.getContext('webgl') || this.canvas.getContext('experimental-webgl');
+            this.gl = this.canvas.getContext('webgl') || this.gl.getContext('experimental-webgl');
             
             if (!this.gl) {
                 throw new Error('WebGL not supported');
@@ -66,6 +71,8 @@ class WebGLFlashRenderer {
             this.initializeParsers();
 
             this.logToTerminal('WebGL Flash Renderer initialized successfully');
+            this.logToTerminal(`Canvas size: ${this.canvas.width}x${this.canvas.height}`);
+            this.logToTerminal(`WebGL viewport: ${this.gl.getParameter(this.gl.VIEWPORT)}`);
             
         } catch (error) {
             this.logToTerminal(`WebGL initialization failed: ${error.message}`);
@@ -78,11 +85,15 @@ class WebGLFlashRenderer {
             if (typeof ShapeParsers !== 'undefined') {
                 this.shapeParsers = new ShapeParsers();
                 this.logToTerminal('ShapeParsers initialized for WebGL rendering');
+            } else {
+                this.logToTerminal('ERROR: ShapeParsers not available');
             }
             
             if (typeof DisplayParsers !== 'undefined') {
                 this.displayParsers = new DisplayParsers();
                 this.logToTerminal('DisplayParsers initialized for WebGL rendering');
+            } else {
+                this.logToTerminal('ERROR: DisplayParsers not available');
             }
         } catch (error) {
             this.logToTerminal(`Parser initialization error: ${error.message}`);
@@ -139,6 +150,8 @@ class WebGLFlashRenderer {
         this.uniforms.modelMatrix = this.gl.getUniformLocation(this.program, 'u_modelMatrix');
 
         this.logToTerminal('Shader program created successfully');
+        this.logToTerminal(`Position attribute location: ${this.attributes.position}`);
+        this.logToTerminal(`Color attribute location: ${this.attributes.color}`);
     }
 
     compileShader(source, type) {
@@ -161,6 +174,8 @@ class WebGLFlashRenderer {
         this.buffers.color = this.gl.createBuffer();
 
         this.logToTerminal('WebGL buffers created');
+        this.logToTerminal(`Vertex buffer: ${this.buffers.vertex}`);
+        this.logToTerminal(`Color buffer: ${this.buffers.color}`);
     }
 
     updateProjectionMatrix() {
@@ -168,10 +183,11 @@ class WebGLFlashRenderer {
         const height = this.canvas.height;
         
         // Create orthographic projection matrix for 2D Flash content
-        // Use Flash coordinate system: origin at top-left, Y increases downward
-        this.setOrthographicMatrix(this.projectionMatrix, 0, width, 0, height, -1000, 1000);
+        // Use standard OpenGL coordinate system: origin at bottom-left
+        this.setOrthographicMatrix(this.projectionMatrix, 0, width, height, 0, -1, 1);
         
         this.logToTerminal(`Projection matrix updated for ${width}x${height}`);
+        this.logToTerminal(`Projection matrix: [${this.projectionMatrix.slice(0, 4).join(', ')}...]`);
     }
 
     setOrthographicMatrix(matrix, left, right, bottom, top, near, far) {
@@ -204,9 +220,14 @@ class WebGLFlashRenderer {
 
     // Direct integration with Flash-JS SWF tag parsing pipeline
     loadFromFlashJSSWFData(arrayBuffer) {
-        this.logToTerminal('Loading Flash content directly from SWF data via Flash-JS parsers');
+        this.logToTerminal('=== STARTING FLASH-JS SWF DATA LOADING ===');
+        this.logToTerminal(`ArrayBuffer size: ${arrayBuffer.byteLength} bytes`);
 
         try {
+            // Clear existing data
+            this.shapes.clear();
+            this.displayList.clear();
+            
             // Parse SWF signature data
             const signatureData = parseSWFSignature(arrayBuffer);
             this.setupViewportFromSignature(signatureData);
@@ -214,15 +235,18 @@ class WebGLFlashRenderer {
             // Parse tags directly using Flash-JS tag parsing pipeline
             this.parseTagsDirectly(arrayBuffer);
 
-            this.logToTerminal(`Loaded ${this.shapes.size} shapes and ${this.displayList.size} display objects for rendering`);
+            this.logToTerminal(`=== LOADING COMPLETE ===`);
+            this.logToTerminal(`Final count - Shapes: ${this.shapes.size}, Display objects: ${this.displayList.size}`);
 
-            // Create test shape if no shapes were found
-            if (this.shapes.size === 0) {
-                this.createTestShape();
-            }
+            // Always create a test shape for debugging
+            this.createTestShape();
+            
+            // Debug log all shapes and display objects
+            this.debugLogAllObjects();
 
         } catch (error) {
             this.logToTerminal(`Error loading Flash-JS SWF data: ${error.message}`);
+            this.logToTerminal(`Error stack: ${error.stack}`);
         }
     }
 
@@ -238,9 +262,12 @@ class WebGLFlashRenderer {
         const signature = String.fromCharCode(bytes[0], bytes[1], bytes[2]);
         let tagData;
         
+        this.logToTerminal(`SWF signature: ${signature}`);
+        
         try {
             switch (signature) {
                 case 'FWS':
+                    this.logToTerminal('Processing uncompressed FWS file');
                     // Calculate tag data offset for uncompressed files
                     const rect = parseRECT(bytes, 8);
                     const nbits = (bytes[8] >> 3) & 0x1F;
@@ -248,9 +275,11 @@ class WebGLFlashRenderer {
                     const rectBytes = Math.ceil(rectBits / 8);
                     const tagOffset = 8 + rectBytes + 4; // +4 for frame rate and count
                     tagData = bytes.slice(tagOffset);
+                    this.logToTerminal(`Tag data starts at offset ${tagOffset}, length ${tagData.length}`);
                     break;
                     
                 case 'CWS':
+                    this.logToTerminal('Processing ZLIB compressed CWS file');
                     // Decompress ZLIB data
                     const compressedData = arrayBuffer.slice(8);
                     const decompressedData = pako.inflate(new Uint8Array(compressedData));
@@ -262,14 +291,17 @@ class WebGLFlashRenderer {
                     const rectBytesCWS = Math.ceil(rectBitsCWS / 8);
                     const tagOffsetCWS = rectBytesCWS + 4;
                     tagData = decompressedData.slice(tagOffsetCWS);
+                    this.logToTerminal(`Decompressed tag data starts at offset ${tagOffsetCWS}, length ${tagData.length}`);
                     break;
                     
                 case 'ZWS':
                     this.logToTerminal('LZMA decompression not yet supported for direct rendering - use regular parsing mode');
+                    this.createTestShape();
                     return;
                     
                 default:
                     this.logToTerminal(`Unknown SWF format: ${signature}`);
+                    this.createTestShape();
                     return;
             }
             
@@ -277,6 +309,7 @@ class WebGLFlashRenderer {
             
         } catch (error) {
             this.logToTerminal(`Error parsing tags for rendering: ${error.message}`);
+            this.logToTerminal(`Error stack: ${error.stack}`);
         }
     }
 
@@ -284,9 +317,9 @@ class WebGLFlashRenderer {
         let offset = 0;
         let tagIndex = 0;
         
-        this.logToTerminal('Parsing tags directly for WebGL rendering');
+        this.logToTerminal('=== PARSING TAGS FOR RENDERING ===');
         
-        while (offset < tagData.length && tagIndex < 1000) {
+        while (offset < tagData.length && tagIndex < 100) { // Reduced limit for debugging
             const tagHeader = this.parseTagHeader(tagData, offset);
             
             if (!tagHeader) {
@@ -296,27 +329,51 @@ class WebGLFlashRenderer {
             
             const contentOffset = offset + tagHeader.headerSize;
             
+            this.logToTerminal(`Tag ${tagIndex}: Type ${tagHeader.type}, Length ${tagHeader.length}, Offset ${offset}`);
+            
             // Process shape definition tags
-            if ([2, 22, 32, 83].includes(tagHeader.type) && this.shapeParsers) {
-                try {
-                    const parsedShape = this.shapeParsers.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
-                    if (parsedShape && parsedShape.data && parsedShape.data.shapeId !== undefined) {
-                        this.processShapeForRendering(parsedShape.data);
+            if ([2, 22, 32, 83].includes(tagHeader.type)) {
+                this.logToTerminal(`Found shape definition tag ${tagHeader.type}`);
+                if (this.shapeParsers) {
+                    try {
+                        const parsedShape = this.shapeParsers.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
+                        this.logToTerminal(`Shape parser result: ${parsedShape ? 'SUCCESS' : 'NULL'}`);
+                        if (parsedShape && parsedShape.data) {
+                            this.logToTerminal(`Shape data keys: ${Object.keys(parsedShape.data).join(', ')}`);
+                            if (parsedShape.data.shapeId !== undefined) {
+                                this.processShapeForRendering(parsedShape.data);
+                            } else {
+                                this.logToTerminal('Shape data missing shapeId');
+                            }
+                        }
+                    } catch (error) {
+                        this.logToTerminal(`Error parsing shape tag ${tagHeader.type}: ${error.message}`);
                     }
-                } catch (error) {
-                    this.logToTerminal(`Error parsing shape tag ${tagHeader.type}: ${error.message}`);
+                } else {
+                    this.logToTerminal('ShapeParsers not available');
                 }
             }
             
             // Process display list tags
-            if ([4, 26, 70].includes(tagHeader.type) && this.displayParsers) {
-                try {
-                    const parsedDisplay = this.displayParsers.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
-                    if (parsedDisplay && parsedDisplay.data && parsedDisplay.data.depth !== undefined) {
-                        this.processDisplayObjectForRendering(parsedDisplay.data);
+            if ([4, 26, 70].includes(tagHeader.type)) {
+                this.logToTerminal(`Found display list tag ${tagHeader.type}`);
+                if (this.displayParsers) {
+                    try {
+                        const parsedDisplay = this.displayParsers.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
+                        this.logToTerminal(`Display parser result: ${parsedDisplay ? 'SUCCESS' : 'NULL'}`);
+                        if (parsedDisplay && parsedDisplay.data) {
+                            this.logToTerminal(`Display data keys: ${Object.keys(parsedDisplay.data).join(', ')}`);
+                            if (parsedDisplay.data.depth !== undefined) {
+                                this.processDisplayObjectForRendering(parsedDisplay.data);
+                            } else {
+                                this.logToTerminal('Display data missing depth');
+                            }
+                        }
+                    } catch (error) {
+                        this.logToTerminal(`Error parsing display tag ${tagHeader.type}: ${error.message}`);
                     }
-                } catch (error) {
-                    this.logToTerminal(`Error parsing display tag ${tagHeader.type}: ${error.message}`);
+                } else {
+                    this.logToTerminal('DisplayParsers not available');
                 }
             }
             
@@ -331,6 +388,7 @@ class WebGLFlashRenderer {
             tagIndex++;
         }
         
+        this.logToTerminal(`=== TAG PARSING COMPLETE ===`);
         this.logToTerminal(`Processed ${tagIndex} tags for rendering`);
     }
 
@@ -375,13 +433,15 @@ class WebGLFlashRenderer {
     }
 
     processShapeForRendering(shapeData) {
-        if (!shapeData.shapeId) return;
-        
-        this.logToTerminal(`Processing shape for rendering: ID ${shapeData.shapeId}`);
+        this.logToTerminal(`=== PROCESSING SHAPE ${shapeData.shapeId} ===`);
+        this.logToTerminal(`Shape data: ${JSON.stringify(shapeData, null, 2).substring(0, 500)}...`);
         
         // Extract shape bounds and create renderable geometry
         const bounds = this.extractShapeBounds(shapeData);
         const color = this.extractShapeColor(shapeData);
+        
+        this.logToTerminal(`Shape bounds: ${JSON.stringify(bounds)}`);
+        this.logToTerminal(`Shape color: ${JSON.stringify(color)}`);
         
         // Convert bounds from twips to pixels and ensure visibility
         let x1 = (bounds.xMin || 0) / 20;
@@ -389,21 +449,25 @@ class WebGLFlashRenderer {
         let x2 = (bounds.xMax || 2000) / 20;
         let y2 = (bounds.yMax || 2000) / 20;
         
+        this.logToTerminal(`Initial coordinates: (${x1}, ${y1}) to (${x2}, ${y2})`);
+        
         // Ensure we have a visible rectangle within the stage
         if (x2 <= x1) {
-            x1 = 50 + (shapeData.shapeId * 10);
-            x2 = x1 + 80;
+            x1 = 50 + (shapeData.shapeId * 20);
+            x2 = x1 + 100;
         }
         if (y2 <= y1) {
-            y1 = 50 + (shapeData.shapeId * 10);
-            y2 = y1 + 60;
+            y1 = 50 + (shapeData.shapeId * 20);
+            y2 = y1 + 80;
         }
         
         // Clamp to stage bounds
-        x1 = Math.max(0, Math.min(x1, this.stageWidth - 10));
-        y1 = Math.max(0, Math.min(y1, this.stageHeight - 10));
-        x2 = Math.max(x1 + 10, Math.min(x2, this.stageWidth));
-        y2 = Math.max(y1 + 10, Math.min(y2, this.stageHeight));
+        x1 = Math.max(10, Math.min(x1, this.stageWidth - 110));
+        y1 = Math.max(10, Math.min(y1, this.stageHeight - 90));
+        x2 = Math.max(x1 + 100, Math.min(x2, this.stageWidth - 10));
+        y2 = Math.max(y1 + 80, Math.min(y2, this.stageHeight - 10));
+        
+        this.logToTerminal(`Final coordinates: (${x1}, ${y1}) to (${x2}, ${y2})`);
         
         // Create two triangles for rectangle
         const vertices = new Float32Array([
@@ -435,7 +499,9 @@ class WebGLFlashRenderer {
         
         this.shapes.set(shapeData.shapeId, renderableShape);
         
-        this.logToTerminal(`Created renderable shape ${shapeData.shapeId}: (${x1.toFixed(1)}, ${y1.toFixed(1)}) to (${x2.toFixed(1)}, ${y2.toFixed(1)}) color:(${color.r.toFixed(2)}, ${color.g.toFixed(2)}, ${color.b.toFixed(2)})`);
+        this.logToTerminal(`Shape ${shapeData.shapeId} stored in shapes map`);
+        this.logToTerminal(`Vertices: [${vertices.slice(0, 8).join(', ')}...]`);
+        this.logToTerminal(`Colors: [${colors.slice(0, 8).join(', ')}...]`);
     }
 
     extractShapeBounds(shapeData) {
@@ -498,12 +564,13 @@ class WebGLFlashRenderer {
     }
 
     processDisplayObjectForRendering(displayData) {
-        if (displayData.depth === undefined) return;
+        this.logToTerminal(`=== PROCESSING DISPLAY OBJECT ===`);
+        this.logToTerminal(`Display data: ${JSON.stringify(displayData, null, 2).substring(0, 300)}...`);
         
         const depth = displayData.depth;
         const characterId = displayData.characterId;
         
-        this.logToTerminal(`Processing display object: Character ${characterId} at depth ${depth}`);
+        this.logToTerminal(`Display object: Character ${characterId} at depth ${depth}`);
         
         // Create display object with transform matrix
         const displayObject = {
@@ -515,7 +582,8 @@ class WebGLFlashRenderer {
         
         this.displayList.set(depth, displayObject);
         
-        this.logToTerminal(`Display object created: depth ${depth}, character ${characterId}`);
+        this.logToTerminal(`Display object stored at depth ${depth}`);
+        this.logToTerminal(`Transform matrix: [${displayObject.matrix.slice(0, 4).join(', ')}...]`);
     }
 
     extractTransformMatrix(displayData) {
@@ -564,17 +632,17 @@ class WebGLFlashRenderer {
     }
 
     createTestShape() {
-        // Create a test shape if no shapes were parsed
-        this.logToTerminal('No shapes found - creating test shape for visibility');
+        // Create a test shape for debugging visibility
+        this.logToTerminal('=== CREATING TEST SHAPE ===');
         
         const vertices = new Float32Array([
-            50, 50,    // Triangle 1: Bottom left
-            150, 50,   // Bottom right
-            50, 100,   // Top left
+            100, 100,    // Triangle 1: Bottom left
+            200, 100,    // Bottom right
+            100, 180,    // Top left
             
-            150, 50,   // Triangle 2: Bottom right
-            150, 100,  // Top right
-            50, 100    // Top left
+            200, 100,    // Triangle 2: Bottom right
+            200, 180,    // Top right
+            100, 180     // Top left
         ]);
         
         const colors = new Float32Array([
@@ -604,7 +672,9 @@ class WebGLFlashRenderer {
         
         this.displayList.set(1, testDisplayObject);
         
-        this.logToTerminal('Test shape created at (50,50) to (150,100) with rainbow colors');
+        this.logToTerminal('Test shape created at (100,100) to (200,180) with rainbow colors');
+        this.logToTerminal(`Test vertices: [${vertices.slice(0, 8).join(', ')}...]`);
+        this.logToTerminal(`Test colors: [${colors.slice(0, 8).join(', ')}...]`);
     }
 
     createIdentityMatrix() {
@@ -613,22 +683,39 @@ class WebGLFlashRenderer {
         return matrix;
     }
 
+    debugLogAllObjects() {
+        this.logToTerminal('=== DEBUG: ALL OBJECTS ===');
+        this.logToTerminal(`Shapes in map: ${this.shapes.size}`);
+        for (const [id, shape] of this.shapes.entries()) {
+            this.logToTerminal(`  Shape ${id}: ${shape.vertexCount} vertices`);
+        }
+        
+        this.logToTerminal(`Display objects in map: ${this.displayList.size}`);
+        for (const [depth, obj] of this.displayList.entries()) {
+            this.logToTerminal(`  Depth ${depth}: Character ${obj.characterId}, Visible: ${obj.visible}`);
+        }
+    }
+
     // Enhanced render loop with actual shape rendering
     render() {
         const currentTime = performance.now();
         const deltaTime = currentTime - this.lastFrameTime;
         this.lastFrameTime = currentTime;
         
+        this.renderAttempts++;
+        
         // Calculate FPS
         this.frameCount++;
-        if (this.frameCount % 60 === 0 && this.displayList.size > 0) {
+        if (this.frameCount % 60 === 0) {
             this.fps = Math.round(1000 / deltaTime);
-            this.logToTerminal(`Rendering at ${this.fps} FPS with ${this.displayList.size} display objects, ${this.shapes.size} shapes`);
+            this.logToTerminal(`=== RENDERING STATUS ===`);
+            this.logToTerminal(`FPS: ${this.fps}, Shapes: ${this.shapes.size}, Display objects: ${this.displayList.size}`);
+            this.logToTerminal(`Render attempts: ${this.renderAttempts}`);
         }
 
         // Clear canvas with white background for visibility
         this.gl.viewport(0, 0, this.canvas.width, this.canvas.height);
-        this.gl.clearColor(1.0, 1.0, 1.0, 1.0); // White background
+        this.gl.clearColor(0.2, 0.2, 0.2, 1.0); // Dark gray background for contrast
         this.gl.clear(this.gl.COLOR_BUFFER_BIT);
 
         // Use shader program
@@ -637,6 +724,12 @@ class WebGLFlashRenderer {
         // Set uniforms
         this.gl.uniformMatrix4fv(this.uniforms.projectionMatrix, false, this.projectionMatrix);
         this.gl.uniformMatrix4fv(this.uniforms.viewMatrix, false, this.viewMatrix);
+
+        // Check for WebGL errors
+        const error = this.gl.getError();
+        if (error !== this.gl.NO_ERROR && this.frameCount % 60 === 0) {
+            this.logToTerminal(`WebGL error before rendering: ${error}`);
+        }
 
         // Render display list in depth order
         this.renderDisplayList();
@@ -654,25 +747,34 @@ class WebGLFlashRenderer {
         
         let renderedCount = 0;
         
+        if (this.frameCount % 60 === 0 && sortedDisplayObjects.length > 0) {
+            this.logToTerminal(`=== RENDERING ${sortedDisplayObjects.length} DISPLAY OBJECTS ===`);
+        }
+        
         for (const [depth, displayObject] of sortedDisplayObjects) {
             if (displayObject.visible && displayObject.characterId !== undefined) {
-                const wasRendered = this.renderDisplayObject(displayObject);
+                const wasRendered = this.renderDisplayObject(displayObject, depth);
                 if (wasRendered) renderedCount++;
             }
         }
         
-        if (this.frameCount % 120 === 0 && renderedCount > 0) {
-            this.logToTerminal(`Rendered ${renderedCount} display objects`);
+        if (this.frameCount % 60 === 0) {
+            this.logToTerminal(`Successfully rendered ${renderedCount} objects`);
         }
     }
 
-    renderDisplayObject(displayObject) {
+    renderDisplayObject(displayObject, depth) {
         const shape = this.shapes.get(displayObject.characterId);
         if (!shape) {
             if (this.frameCount % 300 === 0) {
-                this.logToTerminal(`Warning: No shape found for character ID ${displayObject.characterId}`);
+                this.logToTerminal(`WARNING: No shape found for character ID ${displayObject.characterId} at depth ${depth}`);
+                this.logToTerminal(`Available shapes: ${Array.from(this.shapes.keys()).join(', ')}`);
             }
             return false;
+        }
+        
+        if (this.frameCount % 120 === 0) {
+            this.logToTerminal(`Rendering character ${displayObject.characterId} at depth ${depth}`);
         }
         
         // Set model matrix for this display object
@@ -690,8 +792,22 @@ class WebGLFlashRenderer {
         this.gl.enableVertexAttribArray(this.attributes.color);
         this.gl.vertexAttribPointer(this.attributes.color, 4, this.gl.FLOAT, false, 0, 0);
         
+        // Check for WebGL errors
+        const error = this.gl.getError();
+        if (error !== this.gl.NO_ERROR) {
+            this.logToTerminal(`WebGL error during rendering: ${error}`);
+            return false;
+        }
+        
         // Draw the shape
         this.gl.drawArrays(shape.primitiveType, 0, shape.vertexCount);
+        
+        // Check for WebGL errors after drawing
+        const drawError = this.gl.getError();
+        if (drawError !== this.gl.NO_ERROR) {
+            this.logToTerminal(`WebGL draw error: ${drawError}`);
+            return false;
+        }
         
         return true;
     }
@@ -699,7 +815,9 @@ class WebGLFlashRenderer {
     startRendering() {
         this.renderingActive = true;
         this.render();
-        this.logToTerminal('WebGL rendering started');
+        this.logToTerminal('=== WEBGL RENDERING STARTED ===');
+        this.logToTerminal(`Canvas size: ${this.canvas.width}x${this.canvas.height}`);
+        this.logToTerminal(`Stage size: ${this.stageWidth}x${this.stageHeight}`);
     }
 
     stopRendering() {
@@ -716,8 +834,8 @@ class WebGLFlashRenderer {
 
     // Debug logging using Flash-JS Parse.js webpage terminal output method
     logToTerminal(message) {
-        const timestamp = new Date().toISOString();
-        const logMessage = `[WebGL Renderer] ${message}`;
+        const timestamp = new Date().toISOString().substring(11, 19);
+        const logMessage = `[${timestamp}] [WebGL] ${message}`;
         
         console.log(logMessage);
         
