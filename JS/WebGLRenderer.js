@@ -2,7 +2,7 @@
  * WebGL Flash Game Renderer for Flash-JS Repository
  * Integrates with Parse.js webpage terminal output for debugging
  * Optimized for big Flash games performance
- * PHASE 2: Shape rendering integration with Flash-JS ShapeParsers and DisplayParsers
+ * PHASE 2: Direct integration with Flash-JS ShapeParsers and DisplayParsers objects
  */
 
 class WebGLFlashRenderer {
@@ -27,8 +27,10 @@ class WebGLFlashRenderer {
         this.projectionMatrix = new Float32Array(16);
         this.viewMatrix = new Float32Array(16);
         
-        // Shape tessellation and rendering data
-        this.renderableShapes = new Map(); // ID -> WebGL vertex data
+        // Flash-JS parser integration
+        this.shapeParsers = null;
+        this.displayParsers = null;
+        this.parsedTags = [];
         
         this.initialize();
     }
@@ -60,11 +62,30 @@ class WebGLFlashRenderer {
             // Initialize view matrix
             this.setIdentityMatrix(this.viewMatrix);
 
+            // Initialize Flash-JS parsers
+            this.initializeParsers();
+
             this.logToTerminal('WebGL Flash Renderer initialized successfully');
             
         } catch (error) {
             this.logToTerminal(`WebGL initialization failed: ${error.message}`);
             throw error;
+        }
+    }
+
+    initializeParsers() {
+        try {
+            if (typeof ShapeParsers !== 'undefined') {
+                this.shapeParsers = new ShapeParsers();
+                this.logToTerminal('ShapeParsers initialized for WebGL rendering');
+            }
+            
+            if (typeof DisplayParsers !== 'undefined') {
+                this.displayParsers = new DisplayParsers();
+                this.logToTerminal('DisplayParsers initialized for WebGL rendering');
+            }
+        } catch (error) {
+            this.logToTerminal(`Parser initialization error: ${error.message}`);
         }
     }
 
@@ -199,155 +220,191 @@ class WebGLFlashRenderer {
         matrix[0] = matrix[5] = matrix[10] = matrix[15] = 1;
     }
 
-    // PHASE 2: Integration with Flash-JS Parse.js output for shape rendering
-    loadFromFlashJSData(signatureData, tagData) {
-        this.logToTerminal('Loading Flash content from Flash-JS Parse.js output for rendering');
+    // Direct integration with Flash-JS SWF tag parsing pipeline
+    loadFromFlashJSSWFData(arrayBuffer) {
+        this.logToTerminal('Loading Flash content directly from SWF data via Flash-JS parsers');
 
         try {
-            // Process SWF signature data from parseSWFSignature
-            if (signatureData) {
-                this.setupViewportFromSignature(signatureData);
-            }
+            // Parse SWF signature data
+            const signatureData = parseSWFSignature(arrayBuffer);
+            this.setupViewportFromSignature(signatureData);
 
-            // Process tag data from parseSWFTags to extract shapes and display list
-            if (tagData) {
-                this.processFlashJSTagsForRendering(tagData);
-            }
+            // Parse tags directly using Flash-JS tag parsing pipeline
+            this.parseTagsDirectly(arrayBuffer);
 
-            this.logToTerminal(`Loaded ${this.shapes.size} shapes and ${this.displayList.size} display objects`);
+            this.logToTerminal(`Loaded ${this.shapes.size} shapes and ${this.displayList.size} display objects for rendering`);
 
         } catch (error) {
-            this.logToTerminal(`Error loading Flash-JS parse data: ${error.message}`);
+            this.logToTerminal(`Error loading Flash-JS SWF data: ${error.message}`);
         }
     }
 
-    setupViewportFromSignature(signatureData) {
-        // Parse signature data to extract stage dimensions
-        const lines = signatureData.split('\n');
-        for (const line of lines) {
-            if (line.includes('Stage Dimensions:')) {
-                const match = line.match(/(\d+)\s*×\s*(\d+)\s*pixels/);
-                if (match) {
-                    this.canvas.width = parseInt(match[1]);
-                    this.canvas.height = parseInt(match[2]);
-                    this.updateProjectionMatrix();
-                    this.logToTerminal(`Viewport set to ${this.canvas.width}x${this.canvas.height} from Flash-JS signature data`);
+    parseTagsDirectly(arrayBuffer) {
+        const bytes = new Uint8Array(arrayBuffer);
+        
+        if (arrayBuffer.byteLength < 8) {
+            this.logToTerminal('Invalid SWF file: File is too small');
+            return;
+        }
+        
+        // Read signature to determine processing method
+        const signature = String.fromCharCode(bytes[0], bytes[1], bytes[2]);
+        let tagData;
+        
+        try {
+            switch (signature) {
+                case 'FWS':
+                    // Calculate tag data offset for uncompressed files
+                    const rect = parseRECT(bytes, 8);
+                    const nbits = (bytes[8] >> 3) & 0x1F;
+                    const rectBits = 5 + (4 * nbits);
+                    const rectBytes = Math.ceil(rectBits / 8);
+                    const tagOffset = 8 + rectBytes + 4; // +4 for frame rate and count
+                    tagData = bytes.slice(tagOffset);
                     break;
-                }
+                    
+                case 'CWS':
+                    // Decompress ZLIB data
+                    const compressedData = arrayBuffer.slice(8);
+                    const decompressedData = pako.inflate(new Uint8Array(compressedData));
+                    
+                    // Calculate tag offset from decompressed data
+                    const rectCWS = parseRECT(decompressedData, 0);
+                    const nbitsCWS = (decompressedData[0] >> 3) & 0x1F;
+                    const rectBitsCWS = 5 + (4 * nbitsCWS);
+                    const rectBytesCWS = Math.ceil(rectBitsCWS / 8);
+                    const tagOffsetCWS = rectBytesCWS + 4;
+                    tagData = decompressedData.slice(tagOffsetCWS);
+                    break;
+                    
+                case 'ZWS':
+                    this.logToTerminal('LZMA decompression not yet supported for direct rendering - use regular parsing mode');
+                    return;
+                    
+                default:
+                    this.logToTerminal(`Unknown SWF format: ${signature}`);
+                    return;
             }
+            
+            this.parseTagDataForRendering(tagData);
+            
+        } catch (error) {
+            this.logToTerminal(`Error parsing tags for rendering: ${error.message}`);
         }
     }
 
-    processFlashJSTagsForRendering(tagData) {
-        this.logToTerminal('Processing Flash-JS tag data with ShapeParsers and DisplayParsers');
+    parseTagDataForRendering(tagData) {
+        let offset = 0;
+        let tagIndex = 0;
         
-        // Parse the content mode output to get actual parsed shape data
-        if (tagData.includes('Parsed Tag Content')) {
-            this.parseContentModeData(tagData);
+        this.logToTerminal('Parsing tags directly for WebGL rendering');
+        
+        while (offset < tagData.length && tagIndex < 1000) {
+            const tagHeader = this.parseTagHeader(tagData, offset);
+            
+            if (!tagHeader) {
+                this.logToTerminal(`Error parsing tag header at offset ${offset}`);
+                break;
+            }
+            
+            const contentOffset = offset + tagHeader.headerSize;
+            
+            // Process shape definition tags
+            if ([2, 22, 32, 83].includes(tagHeader.type) && this.shapeParsers) {
+                try {
+                    const parsedShape = this.shapeParsers.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
+                    if (parsedShape && parsedShape.data && parsedShape.data.shapeId !== undefined) {
+                        this.processShapeForRendering(parsedShape.data);
+                    }
+                } catch (error) {
+                    this.logToTerminal(`Error parsing shape tag ${tagHeader.type}: ${error.message}`);
+                }
+            }
+            
+            // Process display list tags
+            if ([4, 26, 70].includes(tagHeader.type) && this.displayParsers) {
+                try {
+                    const parsedDisplay = this.displayParsers.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
+                    if (parsedDisplay && parsedDisplay.data && parsedDisplay.data.depth !== undefined) {
+                        this.processDisplayObjectForRendering(parsedDisplay.data);
+                    }
+                } catch (error) {
+                    this.logToTerminal(`Error parsing display tag ${tagHeader.type}: ${error.message}`);
+                }
+            }
+            
+            // If this is the End tag (type 0), stop parsing
+            if (tagHeader.type === 0) {
+                this.logToTerminal('End tag reached - parsing complete');
+                break;
+            }
+            
+            // Move to next tag
+            offset += tagHeader.headerSize + tagHeader.length;
+            tagIndex++;
+        }
+        
+        this.logToTerminal(`Processed ${tagIndex} tags for rendering`);
+    }
+
+    parseTagHeader(data, offset) {
+        if (offset + 2 > data.length) {
+            return null;
+        }
+        
+        // Read first 2 bytes
+        const byte1 = data[offset];
+        const byte2 = data[offset + 1];
+        
+        // Extract tag type (upper 10 bits) and length (lower 6 bits)
+        const tagAndLength = (byte2 << 8) | byte1;
+        const tagType = (tagAndLength >> 6) & 0x3FF;
+        const shortLength = tagAndLength & 0x3F;
+        
+        let length, headerSize;
+        
+        if (shortLength === 0x3F) {
+            // Long format: read 4 more bytes for length
+            if (offset + 6 > data.length) {
+                return null;
+            }
+            
+            length = data[offset + 2] | 
+                     (data[offset + 3] << 8) | 
+                     (data[offset + 4] << 16) | 
+                     (data[offset + 5] << 24);
+            headerSize = 6;
         } else {
-            // Fallback: trigger content parsing mode to get shape data
-            this.logToTerminal('Tag data not in content parsing mode - switch to "Show Parsed Content Only" to see shapes');
+            // Short format
+            length = shortLength;
+            headerSize = 2;
         }
+        
+        return {
+            type: tagType,
+            length: length,
+            headerSize: headerSize
+        };
     }
 
-    parseContentModeData(tagData) {
-        const lines = tagData.split('\n');
-        let currentTag = null;
-        let currentData = null;
-        let isInContent = false;
+    processShapeForRendering(shapeData) {
+        if (!shapeData.shapeId) return;
         
-        for (let i = 0; i < lines.length; i++) {
-            const line = lines[i].trim();
-            
-            // Detect start of a tag
-            if (line.match(/^Tag \d+:/)) {
-                // Process previous tag if it exists
-                if (currentTag && currentData) {
-                    this.processTagData(currentTag, currentData);
-                }
-                
-                // Start new tag
-                currentTag = this.parseTagHeader(line);
-                currentData = {};
-                isInContent = false;
-            }
-            // Detect content section
-            else if (line === 'Content:') {
-                isInContent = true;
-            }
-            // Parse content data
-            else if (isInContent && line.startsWith('  ')) {
-                this.parseContentLine(line, currentData);
-            }
-        }
+        this.logToTerminal(`Processing shape for rendering: ID ${shapeData.shapeId}`);
         
-        // Process final tag
-        if (currentTag && currentData) {
-            this.processTagData(currentTag, currentData);
-        }
-    }
-
-    parseTagHeader(line) {
-        const tagMatch = line.match(/Tag (\d+): (.+)/);
-        if (tagMatch) {
-            return {
-                index: parseInt(tagMatch[1]),
-                type: tagMatch[2].trim()
-            };
-        }
-        return null;
-    }
-
-    parseContentLine(line, data) {
-        const cleanLine = line.replace(/^  /, '');
+        // Extract shape bounds and create renderable geometry
+        const bounds = this.extractShapeBounds(shapeData);
+        const color = this.extractShapeColor(shapeData);
         
-        if (cleanLine.includes(': ')) {
-            const [key, value] = cleanLine.split(': ', 2);
-            
-            // Parse numeric values
-            if (!isNaN(value)) {
-                data[key] = parseFloat(value);
-            } else {
-                data[key] = value;
-            }
-        }
-    }
-
-    processTagData(tag, data) {
-        // Process DefineShape tags
-        if (tag.type.includes('DefineShape')) {
-            this.processShapeDefinition(tag, data);
-        }
-        // Process PlaceObject tags
-        else if (tag.type.includes('PlaceObject')) {
-            this.processPlaceObject(tag, data);
-        }
-    }
-
-    processShapeDefinition(tag, data) {
-        if (!data.shapeId) return;
-        
-        this.logToTerminal(`Processing shape definition: ID ${data.shapeId} (${tag.type})`);
-        
-        // Create a renderable shape from the parsed data
-        const renderableShape = this.createRenderableShape(data);
-        this.shapes.set(data.shapeId, renderableShape);
-        
-        this.logToTerminal(`Created renderable shape ${data.shapeId} with ${renderableShape.vertices.length / 2} vertices`);
-    }
-
-    createRenderableShape(shapeData) {
-        // For Phase 2, create simple colored rectangles based on shape bounds
-        // This will be enhanced in Phase 3 with actual vector tessellation
-        
-        const bounds = this.parseShapeBounds(shapeData);
-        const color = this.parseShapeColor(shapeData);
-        
-        // Create rectangle vertices from bounds (in twips, convert to pixels)
+        // Create rectangle vertices from bounds (convert twips to pixels)
         const x1 = (bounds.xMin || 0) / 20;
         const y1 = (bounds.yMin || 0) / 20;
         const x2 = (bounds.xMax || 1000) / 20;
         const y2 = (bounds.yMax || 1000) / 20;
+        
+        // Ensure we have a visible rectangle
+        if (x2 <= x1) x2 = x1 + 50;
+        if (y2 <= y1) y2 = y1 + 50;
         
         // Create two triangles for rectangle
         const vertices = new Float32Array([
@@ -368,82 +425,139 @@ class WebGLFlashRenderer {
             color.r, color.g, color.b, color.a
         ]);
         
-        return {
+        const renderableShape = {
             vertices: vertices,
             colors: colors,
             bounds: bounds,
             primitiveType: this.gl.TRIANGLES,
             vertexCount: 6
         };
+        
+        this.shapes.set(shapeData.shapeId, renderableShape);
+        
+        this.logToTerminal(`Created renderable shape ${shapeData.shapeId}: (${x1}, ${y1}) to (${x2}, ${y2})`);
     }
 
-    parseShapeBounds(shapeData) {
-        // Try to extract bounds from various possible formats
-        if (shapeData.boundsFormatted) {
-            const match = shapeData.boundsFormatted.match(/\((-?\d+),\s*(-?\d+)\)\s*to\s*\((-?\d+),\s*(-?\d+)\)/);
-            if (match) {
+    extractShapeBounds(shapeData) {
+        // Extract bounds from the Flash-JS ShapeParsers data structure
+        if (shapeData.bounds) {
+            return {
+                xMin: shapeData.bounds.xMin || 0,
+                yMin: shapeData.bounds.yMin || 0,
+                xMax: shapeData.bounds.xMax || 1000,
+                yMax: shapeData.bounds.yMax || 1000
+            };
+        }
+        
+        // Default bounds for visibility
+        return { xMin: 100, yMin: 100, xMax: 400, yMax: 300 };
+    }
+
+    extractShapeColor(shapeData) {
+        // Try to extract color from fill styles in the Flash-JS data structure
+        if (shapeData.fillStyles && shapeData.fillStyles.styles && shapeData.fillStyles.styles.length > 0) {
+            const firstFill = shapeData.fillStyles.styles[0];
+            if (firstFill.type === 'solid' && firstFill.color) {
                 return {
-                    xMin: parseInt(match[1]),
-                    yMin: parseInt(match[2]),
-                    xMax: parseInt(match[3]),
-                    yMax: parseInt(match[4])
+                    r: (firstFill.color.red || 0) / 255,
+                    g: (firstFill.color.green || 0) / 255,
+                    b: (firstFill.color.blue || 0) / 255,
+                    a: (firstFill.color.alpha !== undefined ? firstFill.color.alpha : 255) / 255
                 };
             }
         }
         
-        // Default bounds for visibility
-        return { xMin: 0, yMin: 0, xMax: 1000, yMax: 1000 };
+        // Generate a visible color based on shape ID
+        const hue = (shapeData.shapeId * 137.5) % 360; // Golden angle for good distribution
+        return this.hslToRgb(hue / 360, 0.7, 0.5);
     }
 
-    parseShapeColor(shapeData) {
-        // Try to extract color from fill styles
-        // For Phase 2, use a default color or simple extraction
-        return { r: 0.8, g: 0.2, b: 0.2, a: 1.0 }; // Default red
-    }
-
-    processPlaceObject(tag, data) {
-        if (!data.depth) return;
+    hslToRgb(h, s, l) {
+        let r, g, b;
         
-        const depth = data.depth;
-        const characterId = data.characterId;
+        if (s === 0) {
+            r = g = b = l;
+        } else {
+            const hue2rgb = (p, q, t) => {
+                if (t < 0) t += 1;
+                if (t > 1) t -= 1;
+                if (t < 1/6) return p + (q - p) * 6 * t;
+                if (t < 1/2) return q;
+                if (t < 2/3) return p + (q - p) * (2/3 - t) * 6;
+                return p;
+            };
+            
+            const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+            const p = 2 * l - q;
+            r = hue2rgb(p, q, h + 1/3);
+            g = hue2rgb(p, q, h);
+            b = hue2rgb(p, q, h - 1/3);
+        }
+        
+        return { r, g, b, a: 1.0 };
+    }
+
+    processDisplayObjectForRendering(displayData) {
+        if (displayData.depth === undefined) return;
+        
+        const depth = displayData.depth;
+        const characterId = displayData.characterId;
         
         this.logToTerminal(`Processing display object: Character ${characterId} at depth ${depth}`);
         
-        // Create display object
+        // Create display object with transform matrix
         const displayObject = {
             characterId: characterId,
             depth: depth,
-            matrix: this.parseTransformMatrix(data),
+            matrix: this.extractTransformMatrix(displayData),
             visible: true
         };
         
         this.displayList.set(depth, displayObject);
     }
 
-    parseTransformMatrix(data) {
-        // Parse transform matrix from Flash-JS DisplayParsers output
-        // For Phase 2, use identity matrix or simple translation
+    extractTransformMatrix(displayData) {
+        // Extract transform matrix from Flash-JS DisplayParsers data structure
         const matrix = new Float32Array(16);
         this.setIdentityMatrix(matrix);
         
-        // Apply simple translation if available
-        if (data.matrixFormatted && data.matrixFormatted.includes('Translate')) {
-            const match = data.matrixFormatted.match(/Translate:\s*\(([^)]+)\)/);
-            if (match) {
-                const coords = match[1].split(',');
-                if (coords.length >= 2) {
-                    const tx = parseFloat(coords[0]) / 20; // Convert twips to pixels
-                    const ty = parseFloat(coords[1]) / 20;
-                    matrix[12] = tx;
-                    matrix[13] = ty;
-                }
-            }
+        if (displayData.matrix) {
+            const m = displayData.matrix;
+            
+            // Apply scale
+            if (m.scaleX !== undefined) matrix[0] = m.scaleX;
+            if (m.scaleY !== undefined) matrix[5] = m.scaleY;
+            
+            // Apply rotation/skew (simplified)
+            if (m.rotateSkew0 !== undefined) matrix[1] = m.rotateSkew0;
+            if (m.rotateSkew1 !== undefined) matrix[4] = m.rotateSkew1;
+            
+            // Apply translation (convert twips to pixels)
+            if (m.translateX !== undefined) matrix[12] = m.translateX / 20;
+            if (m.translateY !== undefined) matrix[13] = m.translateY / 20;
         }
         
         return matrix;
     }
 
-    // PHASE 2: Enhanced render loop with actual shape rendering
+    setupViewportFromSignature(signatureData) {
+        // Parse signature data to extract stage dimensions
+        const lines = signatureData.split('\n');
+        for (const line of lines) {
+            if (line.includes('Stage Dimensions:')) {
+                const match = line.match(/(\d+)\s*×\s*(\d+)\s*pixels/);
+                if (match) {
+                    this.canvas.width = parseInt(match[1]);
+                    this.canvas.height = parseInt(match[2]);
+                    this.updateProjectionMatrix();
+                    this.logToTerminal(`Viewport set to ${this.canvas.width}x${this.canvas.height} from Flash-JS signature data`);
+                    break;
+                }
+            }
+        }
+    }
+
+    // Enhanced render loop with actual shape rendering
     render() {
         const currentTime = performance.now();
         const deltaTime = currentTime - this.lastFrameTime;
@@ -451,14 +565,14 @@ class WebGLFlashRenderer {
         
         // Calculate FPS
         this.frameCount++;
-        if (this.frameCount % 60 === 0) {
+        if (this.frameCount % 60 === 0 && this.displayList.size > 0) {
             this.fps = Math.round(1000 / deltaTime);
             this.logToTerminal(`Rendering at ${this.fps} FPS with ${this.displayList.size} display objects`);
         }
 
         // Clear canvas
         this.gl.viewport(0, 0, this.canvas.width, this.canvas.height);
-        this.gl.clearColor(1.0, 1.0, 1.0, 1.0); // White background for visibility
+        this.gl.clearColor(0.9, 0.9, 0.9, 1.0); // Light gray background for visibility
         this.gl.clear(this.gl.COLOR_BUFFER_BIT | this.gl.DEPTH_BUFFER_BIT);
 
         // Use shader program
@@ -484,7 +598,7 @@ class WebGLFlashRenderer {
             .sort(([depthA], [depthB]) => depthA - depthB);
         
         for (const [depth, displayObject] of sortedDisplayObjects) {
-            if (displayObject.visible && displayObject.characterId) {
+            if (displayObject.visible && displayObject.characterId !== undefined) {
                 this.renderDisplayObject(displayObject);
             }
         }
