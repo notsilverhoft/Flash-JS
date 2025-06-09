@@ -161,7 +161,7 @@ class TextParsers {
         leftMargin = this.dataTypes.parseUI16(reader);
         rightMargin = this.dataTypes.parseUI16(reader);
         indent = this.dataTypes.parseUI16(reader);
-        leading = this.dataTypes.parseSI16(reader);
+        leading = this.dataTypes.parseI16(reader);
       }
       
       let variableName = null;
@@ -374,12 +374,12 @@ class TextParsers {
           
           let xOffset = null;
           if (hasXOffset) {
-            xOffset = this.dataTypes.parseSI16(reader);
+            xOffset = this.dataTypes.parseI16(reader);
           }
           
           let yOffset = null;
           if (hasYOffset) {
-            yOffset = this.dataTypes.parseSI16(reader);
+            yOffset = this.dataTypes.parseI16(reader);
           }
           
           records.push({
