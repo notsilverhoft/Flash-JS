@@ -1,12 +1,14 @@
 /* 
- * SWF Shape Definition Tags Parser - v1.3
+ * SWF Shape Definition Tags Parser - v2.0
  * Handles vector graphics definitions - the visual core of Flash content
  * DefineShape family (Tags 2, 22, 32, 83)
- * Fixed: Use DataTypes.formatRECT for consistency
+ * COMPLETED: Full shape record parsing with proper bit field handling
  */
 class ShapeParsers {
   constructor() {
     this.dataTypes = new SWFDataTypes();
+    this.currentFillBits = 0;
+    this.currentLineBits = 0;
   }
   
   // ==================== TAG PARSING DISPATCHER ====================
@@ -49,7 +51,7 @@ class ShapeParsers {
         data: {
           shapeId: shapeId,
           bounds: shapeBounds,
-          boundsFormatted: this.dataTypes.formatRECT(shapeBounds), // FIXED: use formatRECT
+          boundsFormatted: this.dataTypes.formatRECT(shapeBounds),
           fillStyles: shapeData.fillStyles,
           lineStyles: shapeData.lineStyles,
           shapeRecords: shapeData.shapeRecords,
@@ -83,7 +85,7 @@ class ShapeParsers {
         data: {
           shapeId: shapeId,
           bounds: shapeBounds,
-          boundsFormatted: this.dataTypes.formatRECT(shapeBounds), // FIXED: use formatRECT
+          boundsFormatted: this.dataTypes.formatRECT(shapeBounds),
           fillStyles: shapeData.fillStyles,
           lineStyles: shapeData.lineStyles,
           shapeRecords: shapeData.shapeRecords,
@@ -117,7 +119,7 @@ class ShapeParsers {
         data: {
           shapeId: shapeId,
           bounds: shapeBounds,
-          boundsFormatted: this.dataTypes.formatRECT(shapeBounds), // FIXED: use formatRECT
+          boundsFormatted: this.dataTypes.formatRECT(shapeBounds),
           fillStyles: shapeData.fillStyles,
           lineStyles: shapeData.lineStyles,
           shapeRecords: shapeData.shapeRecords,
@@ -158,8 +160,8 @@ class ShapeParsers {
           shapeId: shapeId,
           bounds: shapeBounds,
           edgeBounds: edgeBounds,
-          boundsFormatted: this.dataTypes.formatRECT(shapeBounds), // FIXED: use formatRECT
-          edgeBoundsFormatted: this.dataTypes.formatRECT(edgeBounds), // FIXED: use formatRECT
+          boundsFormatted: this.dataTypes.formatRECT(shapeBounds),
+          edgeBoundsFormatted: this.dataTypes.formatRECT(edgeBounds),
           usesFillWindingRule: usesFillWindingRule,
           usesNonScalingStrokes: usesNonScalingStrokes,
           usesScalingStrokes: usesScalingStrokes,
@@ -212,13 +214,19 @@ class ShapeParsers {
       // Parse line styles
       const lineStyles = this.parseLineStyleArray(reader, version);
       
+      // Read the initial fill and line bit counts
+      this.currentFillBits = reader.readBits(4);
+      this.currentLineBits = reader.readBits(4);
+      
       // Parse shape records
       const shapeRecords = this.parseShapeRecords(reader, version);
       
       return {
         fillStyles: fillStyles,
         lineStyles: lineStyles,
-        shapeRecords: shapeRecords
+        shapeRecords: shapeRecords,
+        numFillBits: this.currentFillBits,
+        numLineBits: this.currentLineBits
       };
       
     } catch (error) {
@@ -630,18 +638,15 @@ class ShapeParsers {
       }
       
       if (stateFillStyle0) {
-        const fillBits = this.calculateFillBits(reader);
-        record.fillStyle0 = reader.readBits(fillBits);
+        record.fillStyle0 = reader.readBits(this.currentFillBits);
       }
       
       if (stateFillStyle1) {
-        const fillBits = this.calculateFillBits(reader);
-        record.fillStyle1 = reader.readBits(fillBits);
+        record.fillStyle1 = reader.readBits(this.currentFillBits);
       }
       
       if (stateLineStyle) {
-        const lineBits = this.calculateLineBits(reader);
-        record.lineStyle = reader.readBits(lineBits);
+        record.lineStyle = reader.readBits(this.currentLineBits);
       }
       
       if (stateNewStyles) {
@@ -649,11 +654,11 @@ class ShapeParsers {
         record.newFillStyles = this.parseFillStyleArray(reader, version);
         record.newLineStyles = this.parseLineStyleArray(reader, version);
         
-        // Read new bit counts
-        const numFillBits = reader.readBits(4);
-        const numLineBits = reader.readBits(4);
-        record.numFillBits = numFillBits;
-        record.numLineBits = numLineBits;
+        // Read new bit counts and update current values
+        this.currentFillBits = reader.readBits(4);
+        this.currentLineBits = reader.readBits(4);
+        record.numFillBits = this.currentFillBits;
+        record.numLineBits = this.currentLineBits;
       }
       
       return record;
@@ -667,18 +672,6 @@ class ShapeParsers {
   }
   
   // ==================== UTILITY METHODS ====================
-  
-  calculateFillBits(reader) {
-    // This should be determined from the initial shape parsing
-    // For now, return a reasonable default
-    return 1;
-  }
-  
-  calculateLineBits(reader) {
-    // This should be determined from the initial shape parsing
-    // For now, return a reasonable default
-    return 1;
-  }
   
   getSpreadModeName(spreadMode) {
     const modes = ["pad", "reflect", "repeat", "reserved"];
@@ -740,11 +733,11 @@ class ShapeParsers {
       }
       
       if (data.boundsFormatted) {
-        lines.push(`  └─ Bounds: ${data.boundsFormatted}`);
+        lines.push(`  └─ Bounds: ${data.boundsFormatted.formatted}`);
       }
       
       if (data.edgeBoundsFormatted) {
-        lines.push(`  └─ Edge Bounds: ${data.edgeBoundsFormatted}`);
+        lines.push(`  └─ Edge Bounds: ${data.edgeBoundsFormatted.formatted}`);
       }
       
       if (data.fillStyles && data.fillStyles.count > 0) {
