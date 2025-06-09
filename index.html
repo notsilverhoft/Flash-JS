@@ -184,6 +184,80 @@
     .hidden {
       display: none;
     }
+
+    .webgl-container {
+      margin: 20px 0;
+      background-color: #2d2d2d;
+      border: 1px solid #444;
+      border-radius: 5px;
+      padding: 15px;
+    }
+
+    .webgl-header {
+      background-color: #333333;
+      padding: 8px 12px;
+      border-top-left-radius: 5px;
+      border-top-right-radius: 5px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-top: 20px;
+    }
+
+    .webgl-title {
+      margin: 0;
+      color: #ffffff;
+      font-size: 16px;
+    }
+
+    .webgl-canvas {
+      border: 2px solid #555;
+      border-radius: 5px;
+      background-color: #000;
+      display: block;
+      margin: 10px 0;
+    }
+
+    .webgl-controls {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      margin: 10px 0;
+      flex-wrap: wrap;
+    }
+
+    .webgl-info {
+      font-size: 12px;
+      color: #888;
+      margin: 5px 0;
+    }
+
+    .render-button {
+      background-color: #28a745;
+      color: white;
+    }
+
+    .render-button:hover {
+      background-color: #218838;
+    }
+
+    .stop-button {
+      background-color: #dc3545;
+      color: white;
+    }
+
+    .stop-button:hover {
+      background-color: #c82333;
+    }
+
+    .clear-button {
+      background-color: #6c757d;
+      color: white;
+    }
+
+    .clear-button:hover {
+      background-color: #5a6268;
+    }
   </style>
 </head>
 <body>
@@ -333,6 +407,22 @@
     <button class="button" id="applyFilterButton">Apply Filter</button>
   </div>
 
+  <!-- WebGL Renderer Section -->
+  <div class="webgl-header">
+    <h3 class="webgl-title">WebGL Flash Renderer</h3>
+  </div>
+  <div class="webgl-container">
+    <canvas id="webglCanvas" class="webgl-canvas" width="550" height="400"></canvas>
+    <div class="webgl-controls">
+      <button class="button render-button" id="startRenderButton">Start Rendering</button>
+      <button class="button stop-button" id="stopRenderButton">Stop Rendering</button>
+      <button class="button clear-button" id="clearRenderButton">Clear</button>
+    </div>
+    <div class="webgl-info" id="webglInfo">
+      Ready to render Flash content. Upload a SWF file to begin.
+    </div>
+  </div>
+
   <div class="terminal-header">
     <h3 class="terminal-title">Terminal Output</h3>
   </div>
@@ -352,12 +442,24 @@
     const specificTagFilter = document.getElementById('specificTagFilter');
     const applyFilterButton = document.getElementById('applyFilterButton');
 
+    // WebGL Renderer elements
+    const webglCanvas = document.getElementById('webglCanvas');
+    const startRenderButton = document.getElementById('startRenderButton');
+    const stopRenderButton = document.getElementById('stopRenderButton');
+    const clearRenderButton = document.getElementById('clearRenderButton');
+    const webglInfo = document.getElementById('webglInfo');
+
     // Initialize global variables
     window.showAllTags = false;
     window.showContentParsing = false;
     window.showUnparsedOnly = false;
     window.showErrorsOnly = false;
     window.tagTypeFilter = null;
+
+    // WebGL Renderer variables
+    let currentRenderer = null;
+    let currentSignatureData = null;
+    let currentTagData = null;
 
     // Helper function to reset filter UI
     function resetFilterUI() {
@@ -522,15 +624,62 @@
       }
     });
 
+    // WebGL Renderer button functionality
+    startRenderButton.addEventListener('click', function() {
+      if (!currentSignatureData || !currentTagData) {
+        webglInfo.textContent = 'Please upload a SWF file first';
+        return;
+      }
+
+      try {
+        // Create WebGL renderer if it doesn't exist
+        if (!currentRenderer) {
+          currentRenderer = new WebGLFlashRenderer(webglCanvas);
+        }
+        
+        // Load Flash-JS parse data into renderer
+        currentRenderer.loadFromFlashJSData(currentSignatureData, currentTagData);
+        
+        // Start render loop
+        currentRenderer.startRendering();
+        
+        webglInfo.textContent = 'WebGL rendering active';
+        
+      } catch (error) {
+        webglInfo.textContent = `WebGL Error: ${error.message}`;
+      }
+    });
+
+    stopRenderButton.addEventListener('click', function() {
+      if (currentRenderer) {
+        currentRenderer.stopRendering();
+        webglInfo.textContent = 'Rendering stopped';
+      }
+    });
+
+    clearRenderButton.addEventListener('click', function() {
+      if (currentRenderer) {
+        currentRenderer.destroy();
+        currentRenderer = null;
+      }
+      
+      const ctx = webglCanvas.getContext('2d');
+      if (ctx) {
+        ctx.clearRect(0, 0, webglCanvas.width, webglCanvas.height);
+      }
+      
+      webglInfo.textContent = 'Renderer cleared';
+    });
+
     // Function to reparse current file
     function reparseCurrentFile() {
       const fileInput = document.getElementById('SWF-Input');
       if (fileInput.files[0]) {
         const file = fileInput.files[0];
         file.arrayBuffer().then(arrayBuffer => {
-          const parsedInfo = parseSWFSignature(arrayBuffer);
-          const tagInfo = parseSWFTags(arrayBuffer);
-          terminal.textContent = parsedInfo + '\n\n' + tagInfo;
+          currentSignatureData = parseSWFSignature(arrayBuffer);
+          currentTagData = parseSWFTags(arrayBuffer);
+          terminal.textContent = currentSignatureData + '\n\n' + currentTagData;
         });
       }
     }
@@ -559,9 +708,12 @@
 
       try {
         const arrayBuffer = await file.arrayBuffer();
-        const parsedInfo = parseSWFSignature(arrayBuffer);
-        const tagInfo = parseSWFTags(arrayBuffer);
-        terminal.textContent = parsedInfo + '\n\n' + tagInfo;
+        currentSignatureData = parseSWFSignature(arrayBuffer);
+        currentTagData = parseSWFTags(arrayBuffer);
+        terminal.textContent = currentSignatureData + '\n\n' + currentTagData;
+        
+        // Update WebGL info
+        webglInfo.textContent = `${file.name} loaded. Ready to render.`;
       } catch (err) {
         terminal.textContent = 'Error reading SWF file: ' + err.message;
       }
@@ -592,5 +744,8 @@
   
   <!-- Load Parse.js LAST as it runs commands from other files -->
   <script src="JS/Parse.js"></script>
+  
+  <!-- Load WebGL Renderer after all Flash-JS components -->
+  <script src="JS/WebGLRenderer.js"></script>
 </body>
 </html>
