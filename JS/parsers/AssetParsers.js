@@ -8,6 +8,7 @@
 class AssetParsers {
   constructor() {
     this.dataTypes = new SWFDataTypes();
+    this.as3Parser = new AS3Parsers();
     
     // ActionScript 1.0/2.0 Opcode definitions
     this.actionCodes = {
@@ -148,7 +149,7 @@ class AssetParsers {
       case 76:
         return this.parseSymbolClass(reader, length);
       case 82:
-        return this.parseDoABC(reader, length);
+        return this.as3Parser.parseDoABC(reader, length);
       default:
         return this.parseUnknownAssetTag(tagType, reader, length);
     }
@@ -773,52 +774,6 @@ class AssetParsers {
       return {
         tagType: "SymbolClass",
         description: "Associates ActionScript 3.0 classes with character definitions",
-        error: `Parse error: ${error.message}`,
-        data: {}
-      };
-    }
-  }
-  
-  parseDoABC(reader, length) {
-    try {
-      const flags = this.dataTypes.parseUI32(reader);
-      const name = this.dataTypes.parseString(reader);
-      const abcDataLength = length - 4 - (name.length + 1);
-      
-      // Basic ABC structure analysis (simplified)
-      const minorVersion = this.dataTypes.parseUI16(reader);
-      const majorVersion = this.dataTypes.parseUI16(reader);
-      
-      // Skip detailed ABC parsing for now - this is Phase 4/5 material
-      const remainingData = [];
-      const bytesToRead = Math.min(abcDataLength - 4, 32);
-      for (let i = 0; i < bytesToRead; i++) {
-        remainingData.push(this.dataTypes.parseUI8(reader));
-      }
-      
-      return {
-        tagType: "DoABC",
-        description: "Defines ActionScript 3.0 bytecode (ABC format)",
-        data: {
-          flags: flags,
-          name: name,
-          version: {
-            major: majorVersion,
-            minor: minorVersion,
-            formatted: `${majorVersion}.${minorVersion}`
-          },
-          abcDataLength: abcDataLength,
-          lazyInitializeFlag: (flags & 0x01) !== 0,
-          note: "Full ActionScript 3.0 decompilation not yet implemented",
-          rawDataPreview: remainingData,
-          truncated: abcDataLength > 32
-        }
-      };
-      
-    } catch (error) {
-      return {
-        tagType: "DoABC",
-        description: "Defines ActionScript 3.0 bytecode (ABC format)",
         error: `Parse error: ${error.message}`,
         data: {}
       };
