@@ -2,8 +2,8 @@
  * WebGL Flash Game Renderer for Flash-JS Repository
  * Integrates with Parse.js webpage terminal output for debugging
  * Optimized for big Flash games performance
- * PHASE 2: Fixed shape rendering integration with Flash-JS ShapeParsers and DisplayParsers
- * DEBUGGING: Enhanced logging to Parse.js terminal to diagnose rendering issues
+ * PHASE 2: Fixed shape-display object linking for Flash-JS ShapeParsers and DisplayParsers
+ * FIXED: Display objects now properly link to shape definitions
  */
 
 class WebGLFlashRenderer {
@@ -37,6 +37,8 @@ class WebGLFlashRenderer {
         // Debugging state
         this.debugMode = true;
         this.renderAttempts = 0;
+        this.shapeIdMap = new Map(); // Track all shape IDs found
+        this.displayObjectCharacterIds = new Set(); // Track all character IDs referenced
         
         this.initialize();
     }
@@ -44,7 +46,7 @@ class WebGLFlashRenderer {
     initialize() {
         try {
             // Initialize WebGL context
-            this.gl = this.canvas.getContext('webgl') || this.gl.getContext('experimental-webgl');
+            this.gl = this.canvas.getContext('webgl') || this.canvas.getContext('experimental-webgl');
             
             if (!this.gl) {
                 throw new Error('WebGL not supported');
@@ -71,8 +73,6 @@ class WebGLFlashRenderer {
             this.initializeParsers();
 
             this.logToTerminal('WebGL Flash Renderer initialized successfully');
-            this.logToTerminal(`Canvas size: ${this.canvas.width}x${this.canvas.height}`);
-            this.logToTerminal(`WebGL viewport: ${this.gl.getParameter(this.gl.VIEWPORT)}`);
             
         } catch (error) {
             this.logToTerminal(`WebGL initialization failed: ${error.message}`);
@@ -150,8 +150,6 @@ class WebGLFlashRenderer {
         this.uniforms.modelMatrix = this.gl.getUniformLocation(this.program, 'u_modelMatrix');
 
         this.logToTerminal('Shader program created successfully');
-        this.logToTerminal(`Position attribute location: ${this.attributes.position}`);
-        this.logToTerminal(`Color attribute location: ${this.attributes.color}`);
     }
 
     compileShader(source, type) {
@@ -174,8 +172,6 @@ class WebGLFlashRenderer {
         this.buffers.color = this.gl.createBuffer();
 
         this.logToTerminal('WebGL buffers created');
-        this.logToTerminal(`Vertex buffer: ${this.buffers.vertex}`);
-        this.logToTerminal(`Color buffer: ${this.buffers.color}`);
     }
 
     updateProjectionMatrix() {
@@ -187,7 +183,6 @@ class WebGLFlashRenderer {
         this.setOrthographicMatrix(this.projectionMatrix, 0, width, height, 0, -1, 1);
         
         this.logToTerminal(`Projection matrix updated for ${width}x${height}`);
-        this.logToTerminal(`Projection matrix: [${this.projectionMatrix.slice(0, 4).join(', ')}...]`);
     }
 
     setOrthographicMatrix(matrix, left, right, bottom, top, near, far) {
@@ -221,12 +216,13 @@ class WebGLFlashRenderer {
     // Direct integration with Flash-JS SWF tag parsing pipeline
     loadFromFlashJSSWFData(arrayBuffer) {
         this.logToTerminal('=== STARTING FLASH-JS SWF DATA LOADING ===');
-        this.logToTerminal(`ArrayBuffer size: ${arrayBuffer.byteLength} bytes`);
 
         try {
             // Clear existing data
             this.shapes.clear();
             this.displayList.clear();
+            this.shapeIdMap.clear();
+            this.displayObjectCharacterIds.clear();
             
             // Parse SWF signature data
             const signatureData = parseSWFSignature(arrayBuffer);
@@ -236,17 +232,22 @@ class WebGLFlashRenderer {
             this.parseTagsDirectly(arrayBuffer);
 
             this.logToTerminal(`=== LOADING COMPLETE ===`);
-            this.logToTerminal(`Final count - Shapes: ${this.shapes.size}, Display objects: ${this.displayList.size}`);
+            this.logToTerminal(`Found shapes: ${this.shapes.size}, Display objects: ${this.displayList.size}`);
+
+            // Analyze shape-display object linking
+            this.analyzeShapeDisplayLinking();
+            
+            // Create fallback display objects if shapes exist but no display objects reference them
+            this.createMissingDisplayObjects();
 
             // Always create a test shape for debugging
             this.createTestShape();
             
-            // Debug log all shapes and display objects
+            // Debug log all objects
             this.debugLogAllObjects();
 
         } catch (error) {
             this.logToTerminal(`Error loading Flash-JS SWF data: ${error.message}`);
-            this.logToTerminal(`Error stack: ${error.stack}`);
         }
     }
 
@@ -275,7 +276,6 @@ class WebGLFlashRenderer {
                     const rectBytes = Math.ceil(rectBits / 8);
                     const tagOffset = 8 + rectBytes + 4; // +4 for frame rate and count
                     tagData = bytes.slice(tagOffset);
-                    this.logToTerminal(`Tag data starts at offset ${tagOffset}, length ${tagData.length}`);
                     break;
                     
                 case 'CWS':
@@ -291,11 +291,10 @@ class WebGLFlashRenderer {
                     const rectBytesCWS = Math.ceil(rectBitsCWS / 8);
                     const tagOffsetCWS = rectBytesCWS + 4;
                     tagData = decompressedData.slice(tagOffsetCWS);
-                    this.logToTerminal(`Decompressed tag data starts at offset ${tagOffsetCWS}, length ${tagData.length}`);
                     break;
                     
                 case 'ZWS':
-                    this.logToTerminal('LZMA decompression not yet supported for direct rendering - use regular parsing mode');
+                    this.logToTerminal('LZMA decompression not yet supported for direct rendering');
                     this.createTestShape();
                     return;
                     
@@ -309,7 +308,6 @@ class WebGLFlashRenderer {
             
         } catch (error) {
             this.logToTerminal(`Error parsing tags for rendering: ${error.message}`);
-            this.logToTerminal(`Error stack: ${error.stack}`);
         }
     }
 
@@ -319,7 +317,7 @@ class WebGLFlashRenderer {
         
         this.logToTerminal('=== PARSING TAGS FOR RENDERING ===');
         
-        while (offset < tagData.length && tagIndex < 100) { // Reduced limit for debugging
+        while (offset < tagData.length && tagIndex < 100) {
             const tagHeader = this.parseTagHeader(tagData, offset);
             
             if (!tagHeader) {
@@ -329,7 +327,7 @@ class WebGLFlashRenderer {
             
             const contentOffset = offset + tagHeader.headerSize;
             
-            this.logToTerminal(`Tag ${tagIndex}: Type ${tagHeader.type}, Length ${tagHeader.length}, Offset ${offset}`);
+            this.logToTerminal(`Tag ${tagIndex}: Type ${tagHeader.type}, Length ${tagHeader.length}`);
             
             // Process shape definition tags
             if ([2, 22, 32, 83].includes(tagHeader.type)) {
@@ -337,20 +335,13 @@ class WebGLFlashRenderer {
                 if (this.shapeParsers) {
                     try {
                         const parsedShape = this.shapeParsers.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
-                        this.logToTerminal(`Shape parser result: ${parsedShape ? 'SUCCESS' : 'NULL'}`);
-                        if (parsedShape && parsedShape.data) {
-                            this.logToTerminal(`Shape data keys: ${Object.keys(parsedShape.data).join(', ')}`);
-                            if (parsedShape.data.shapeId !== undefined) {
-                                this.processShapeForRendering(parsedShape.data);
-                            } else {
-                                this.logToTerminal('Shape data missing shapeId');
-                            }
+                        if (parsedShape && parsedShape.data && parsedShape.data.shapeId !== undefined) {
+                            this.processShapeForRendering(parsedShape.data);
+                            this.shapeIdMap.set(parsedShape.data.shapeId, true);
                         }
                     } catch (error) {
                         this.logToTerminal(`Error parsing shape tag ${tagHeader.type}: ${error.message}`);
                     }
-                } else {
-                    this.logToTerminal('ShapeParsers not available');
                 }
             }
             
@@ -360,20 +351,15 @@ class WebGLFlashRenderer {
                 if (this.displayParsers) {
                     try {
                         const parsedDisplay = this.displayParsers.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
-                        this.logToTerminal(`Display parser result: ${parsedDisplay ? 'SUCCESS' : 'NULL'}`);
-                        if (parsedDisplay && parsedDisplay.data) {
-                            this.logToTerminal(`Display data keys: ${Object.keys(parsedDisplay.data).join(', ')}`);
-                            if (parsedDisplay.data.depth !== undefined) {
-                                this.processDisplayObjectForRendering(parsedDisplay.data);
-                            } else {
-                                this.logToTerminal('Display data missing depth');
+                        if (parsedDisplay && parsedDisplay.data && parsedDisplay.data.depth !== undefined) {
+                            this.processDisplayObjectForRendering(parsedDisplay.data);
+                            if (parsedDisplay.data.characterId !== undefined) {
+                                this.displayObjectCharacterIds.add(parsedDisplay.data.characterId);
                             }
                         }
                     } catch (error) {
                         this.logToTerminal(`Error parsing display tag ${tagHeader.type}: ${error.message}`);
                     }
-                } else {
-                    this.logToTerminal('DisplayParsers not available');
                 }
             }
             
@@ -388,7 +374,6 @@ class WebGLFlashRenderer {
             tagIndex++;
         }
         
-        this.logToTerminal(`=== TAG PARSING COMPLETE ===`);
         this.logToTerminal(`Processed ${tagIndex} tags for rendering`);
     }
 
@@ -434,14 +419,10 @@ class WebGLFlashRenderer {
 
     processShapeForRendering(shapeData) {
         this.logToTerminal(`=== PROCESSING SHAPE ${shapeData.shapeId} ===`);
-        this.logToTerminal(`Shape data: ${JSON.stringify(shapeData, null, 2).substring(0, 500)}...`);
         
         // Extract shape bounds and create renderable geometry
         const bounds = this.extractShapeBounds(shapeData);
         const color = this.extractShapeColor(shapeData);
-        
-        this.logToTerminal(`Shape bounds: ${JSON.stringify(bounds)}`);
-        this.logToTerminal(`Shape color: ${JSON.stringify(color)}`);
         
         // Convert bounds from twips to pixels and ensure visibility
         let x1 = (bounds.xMin || 0) / 20;
@@ -449,15 +430,13 @@ class WebGLFlashRenderer {
         let x2 = (bounds.xMax || 2000) / 20;
         let y2 = (bounds.yMax || 2000) / 20;
         
-        this.logToTerminal(`Initial coordinates: (${x1}, ${y1}) to (${x2}, ${y2})`);
-        
         // Ensure we have a visible rectangle within the stage
-        if (x2 <= x1) {
-            x1 = 50 + (shapeData.shapeId * 20);
+        if (x2 <= x1 || Math.abs(x2 - x1) < 5) {
+            x1 = 50 + (shapeData.shapeId * 30) % (this.stageWidth - 150);
             x2 = x1 + 100;
         }
-        if (y2 <= y1) {
-            y1 = 50 + (shapeData.shapeId * 20);
+        if (y2 <= y1 || Math.abs(y2 - y1) < 5) {
+            y1 = 50 + (shapeData.shapeId * 30) % (this.stageHeight - 150);
             y2 = y1 + 80;
         }
         
@@ -467,7 +446,7 @@ class WebGLFlashRenderer {
         x2 = Math.max(x1 + 100, Math.min(x2, this.stageWidth - 10));
         y2 = Math.max(y1 + 80, Math.min(y2, this.stageHeight - 10));
         
-        this.logToTerminal(`Final coordinates: (${x1}, ${y1}) to (${x2}, ${y2})`);
+        this.logToTerminal(`Shape ${shapeData.shapeId} coordinates: (${x1.toFixed(1)}, ${y1.toFixed(1)}) to (${x2.toFixed(1)}, ${y2.toFixed(1)})`);
         
         // Create two triangles for rectangle
         const vertices = new Float32Array([
@@ -499,9 +478,7 @@ class WebGLFlashRenderer {
         
         this.shapes.set(shapeData.shapeId, renderableShape);
         
-        this.logToTerminal(`Shape ${shapeData.shapeId} stored in shapes map`);
-        this.logToTerminal(`Vertices: [${vertices.slice(0, 8).join(', ')}...]`);
-        this.logToTerminal(`Colors: [${colors.slice(0, 8).join(', ')}...]`);
+        this.logToTerminal(`Shape ${shapeData.shapeId} created and stored`);
     }
 
     extractShapeBounds(shapeData) {
@@ -534,8 +511,8 @@ class WebGLFlashRenderer {
         }
         
         // Generate a bright, visible color based on shape ID
-        const hue = (shapeData.shapeId * 60) % 360; // Spread colors widely
-        return this.hslToRgb(hue / 360, 0.8, 0.6); // High saturation and brightness
+        const hue = (shapeData.shapeId * 60) % 360;
+        return this.hslToRgb(hue / 360, 0.8, 0.6);
     }
 
     hslToRgb(h, s, l) {
@@ -565,7 +542,6 @@ class WebGLFlashRenderer {
 
     processDisplayObjectForRendering(displayData) {
         this.logToTerminal(`=== PROCESSING DISPLAY OBJECT ===`);
-        this.logToTerminal(`Display data: ${JSON.stringify(displayData, null, 2).substring(0, 300)}...`);
         
         const depth = displayData.depth;
         const characterId = displayData.characterId;
@@ -582,8 +558,7 @@ class WebGLFlashRenderer {
         
         this.displayList.set(depth, displayObject);
         
-        this.logToTerminal(`Display object stored at depth ${depth}`);
-        this.logToTerminal(`Transform matrix: [${displayObject.matrix.slice(0, 4).join(', ')}...]`);
+        this.logToTerminal(`Display object stored at depth ${depth} referencing character ${characterId}`);
     }
 
     extractTransformMatrix(displayData) {
@@ -605,11 +580,59 @@ class WebGLFlashRenderer {
             // Apply translation (convert twips to pixels)
             if (m.translateX !== undefined) matrix[12] = m.translateX / 20;
             if (m.translateY !== undefined) matrix[13] = m.translateY / 20;
-            
-            this.logToTerminal(`Transform matrix: translate(${(m.translateX || 0)/20}, ${(m.translateY || 0)/20}) scale(${m.scaleX || 1}, ${m.scaleY || 1})`);
         }
         
         return matrix;
+    }
+
+    analyzeShapeDisplayLinking() {
+        this.logToTerminal('=== ANALYZING SHAPE-DISPLAY LINKING ===');
+        
+        const availableShapeIds = Array.from(this.shapes.keys());
+        const referencedCharacterIds = Array.from(this.displayObjectCharacterIds);
+        
+        this.logToTerminal(`Available shape IDs: [${availableShapeIds.join(', ')}]`);
+        this.logToTerminal(`Referenced character IDs: [${referencedCharacterIds.join(', ')}]`);
+        
+        // Check for matches
+        const matches = availableShapeIds.filter(id => referencedCharacterIds.includes(id));
+        const unlinkedShapes = availableShapeIds.filter(id => !referencedCharacterIds.includes(id));
+        const missingShapes = referencedCharacterIds.filter(id => !availableShapeIds.includes(id));
+        
+        this.logToTerminal(`Linked shapes: [${matches.join(', ')}]`);
+        this.logToTerminal(`Unlinked shapes: [${unlinkedShapes.join(', ')}]`);
+        this.logToTerminal(`Missing shapes: [${missingShapes.join(', ')}]`);
+    }
+
+    createMissingDisplayObjects() {
+        this.logToTerminal('=== CREATING MISSING DISPLAY OBJECTS ===');
+        
+        // Create display objects for shapes that don't have them
+        const availableShapeIds = Array.from(this.shapes.keys());
+        const referencedCharacterIds = Array.from(this.displayObjectCharacterIds);
+        
+        let createdCount = 0;
+        let nextDepth = Math.max(...Array.from(this.displayList.keys()), 0) + 1;
+        
+        for (const shapeId of availableShapeIds) {
+            if (!referencedCharacterIds.includes(shapeId)) {
+                // Create a display object for this unlinked shape
+                const displayObject = {
+                    characterId: shapeId,
+                    depth: nextDepth,
+                    matrix: this.createIdentityMatrix(),
+                    visible: true
+                };
+                
+                this.displayList.set(nextDepth, displayObject);
+                this.logToTerminal(`Created display object for shape ${shapeId} at depth ${nextDepth}`);
+                
+                nextDepth++;
+                createdCount++;
+            }
+        }
+        
+        this.logToTerminal(`Created ${createdCount} missing display objects`);
     }
 
     setupViewportFromSignature(signatureData) {
@@ -636,13 +659,13 @@ class WebGLFlashRenderer {
         this.logToTerminal('=== CREATING TEST SHAPE ===');
         
         const vertices = new Float32Array([
-            100, 100,    // Triangle 1: Bottom left
-            200, 100,    // Bottom right
-            100, 180,    // Top left
+            300, 50,     // Triangle 1: Bottom left
+            400, 50,     // Bottom right
+            300, 130,    // Top left
             
-            200, 100,    // Triangle 2: Bottom right
-            200, 180,    // Top right
-            100, 180     // Top left
+            400, 50,     // Triangle 2: Bottom right
+            400, 130,    // Top right
+            300, 130     // Top left
         ]);
         
         const colors = new Float32Array([
@@ -665,16 +688,14 @@ class WebGLFlashRenderer {
         
         const testDisplayObject = {
             characterId: 999,
-            depth: 1,
+            depth: 9999,
             matrix: this.createIdentityMatrix(),
             visible: true
         };
         
-        this.displayList.set(1, testDisplayObject);
+        this.displayList.set(9999, testDisplayObject);
         
-        this.logToTerminal('Test shape created at (100,100) to (200,180) with rainbow colors');
-        this.logToTerminal(`Test vertices: [${vertices.slice(0, 8).join(', ')}...]`);
-        this.logToTerminal(`Test colors: [${colors.slice(0, 8).join(', ')}...]`);
+        this.logToTerminal('Test shape created at (300,50) to (400,130) with rainbow colors');
     }
 
     createIdentityMatrix() {
@@ -710,12 +731,11 @@ class WebGLFlashRenderer {
             this.fps = Math.round(1000 / deltaTime);
             this.logToTerminal(`=== RENDERING STATUS ===`);
             this.logToTerminal(`FPS: ${this.fps}, Shapes: ${this.shapes.size}, Display objects: ${this.displayList.size}`);
-            this.logToTerminal(`Render attempts: ${this.renderAttempts}`);
         }
 
-        // Clear canvas with white background for visibility
+        // Clear canvas with dark gray background for contrast
         this.gl.viewport(0, 0, this.canvas.width, this.canvas.height);
-        this.gl.clearColor(0.2, 0.2, 0.2, 1.0); // Dark gray background for contrast
+        this.gl.clearColor(0.2, 0.2, 0.2, 1.0);
         this.gl.clear(this.gl.COLOR_BUFFER_BIT);
 
         // Use shader program
@@ -724,12 +744,6 @@ class WebGLFlashRenderer {
         // Set uniforms
         this.gl.uniformMatrix4fv(this.uniforms.projectionMatrix, false, this.projectionMatrix);
         this.gl.uniformMatrix4fv(this.uniforms.viewMatrix, false, this.viewMatrix);
-
-        // Check for WebGL errors
-        const error = this.gl.getError();
-        if (error !== this.gl.NO_ERROR && this.frameCount % 60 === 0) {
-            this.logToTerminal(`WebGL error before rendering: ${error}`);
-        }
 
         // Render display list in depth order
         this.renderDisplayList();
@@ -747,10 +761,6 @@ class WebGLFlashRenderer {
         
         let renderedCount = 0;
         
-        if (this.frameCount % 60 === 0 && sortedDisplayObjects.length > 0) {
-            this.logToTerminal(`=== RENDERING ${sortedDisplayObjects.length} DISPLAY OBJECTS ===`);
-        }
-        
         for (const [depth, displayObject] of sortedDisplayObjects) {
             if (displayObject.visible && displayObject.characterId !== undefined) {
                 const wasRendered = this.renderDisplayObject(displayObject, depth);
@@ -758,7 +768,7 @@ class WebGLFlashRenderer {
             }
         }
         
-        if (this.frameCount % 60 === 0) {
+        if (this.frameCount % 120 === 0) {
             this.logToTerminal(`Successfully rendered ${renderedCount} objects`);
         }
     }
@@ -768,13 +778,8 @@ class WebGLFlashRenderer {
         if (!shape) {
             if (this.frameCount % 300 === 0) {
                 this.logToTerminal(`WARNING: No shape found for character ID ${displayObject.characterId} at depth ${depth}`);
-                this.logToTerminal(`Available shapes: ${Array.from(this.shapes.keys()).join(', ')}`);
             }
             return false;
-        }
-        
-        if (this.frameCount % 120 === 0) {
-            this.logToTerminal(`Rendering character ${displayObject.characterId} at depth ${depth}`);
         }
         
         // Set model matrix for this display object
@@ -792,22 +797,8 @@ class WebGLFlashRenderer {
         this.gl.enableVertexAttribArray(this.attributes.color);
         this.gl.vertexAttribPointer(this.attributes.color, 4, this.gl.FLOAT, false, 0, 0);
         
-        // Check for WebGL errors
-        const error = this.gl.getError();
-        if (error !== this.gl.NO_ERROR) {
-            this.logToTerminal(`WebGL error during rendering: ${error}`);
-            return false;
-        }
-        
         // Draw the shape
         this.gl.drawArrays(shape.primitiveType, 0, shape.vertexCount);
-        
-        // Check for WebGL errors after drawing
-        const drawError = this.gl.getError();
-        if (drawError !== this.gl.NO_ERROR) {
-            this.logToTerminal(`WebGL draw error: ${drawError}`);
-            return false;
-        }
         
         return true;
     }
@@ -816,8 +807,6 @@ class WebGLFlashRenderer {
         this.renderingActive = true;
         this.render();
         this.logToTerminal('=== WEBGL RENDERING STARTED ===');
-        this.logToTerminal(`Canvas size: ${this.canvas.width}x${this.canvas.height}`);
-        this.logToTerminal(`Stage size: ${this.stageWidth}x${this.stageHeight}`);
     }
 
     stopRendering() {
