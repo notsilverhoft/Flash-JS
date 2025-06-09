@@ -343,7 +343,7 @@ class TextParsers {
     const maxRecords = 10; // Limit for performance
     
     try {
-      while (recordIndex < maxRecords && reader.position < reader.data.length - 1) {
+      while (recordIndex < maxRecords && reader.byteOffset < reader.buffer.length - 1) {
         const firstByte = this.dataTypes.parseUI8(reader);
         
         if (firstByte === 0) {
