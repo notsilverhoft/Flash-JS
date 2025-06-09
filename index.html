@@ -458,8 +458,7 @@
 
     // WebGL Renderer variables
     let currentRenderer = null;
-    let currentSignatureData = null;
-    let currentTagData = null;
+    let currentArrayBuffer = null;
 
     // Helper function to reset filter UI
     function resetFilterUI() {
@@ -626,7 +625,7 @@
 
     // WebGL Renderer button functionality
     startRenderButton.addEventListener('click', function() {
-      if (!currentSignatureData || !currentTagData) {
+      if (!currentArrayBuffer) {
         webglInfo.textContent = 'Please upload a SWF file first';
         return;
       }
@@ -637,13 +636,13 @@
           currentRenderer = new WebGLFlashRenderer(webglCanvas);
         }
         
-        // Load Flash-JS parse data into renderer
-        currentRenderer.loadFromFlashJSData(currentSignatureData, currentTagData);
+        // Load Flash-JS SWF data directly into renderer
+        currentRenderer.loadFromFlashJSSWFData(currentArrayBuffer);
         
         // Start render loop
         currentRenderer.startRendering();
         
-        webglInfo.textContent = 'WebGL rendering active';
+        webglInfo.textContent = 'WebGL rendering active - parsing SWF data directly';
         
       } catch (error) {
         webglInfo.textContent = `WebGL Error: ${error.message}`;
@@ -677,9 +676,9 @@
       if (fileInput.files[0]) {
         const file = fileInput.files[0];
         file.arrayBuffer().then(arrayBuffer => {
-          currentSignatureData = parseSWFSignature(arrayBuffer);
-          currentTagData = parseSWFTags(arrayBuffer);
-          terminal.textContent = currentSignatureData + '\n\n' + currentTagData;
+          const parsedInfo = parseSWFSignature(arrayBuffer);
+          const tagInfo = parseSWFTags(arrayBuffer);
+          terminal.textContent = parsedInfo + '\n\n' + tagInfo;
         });
       }
     }
@@ -708,12 +707,16 @@
 
       try {
         const arrayBuffer = await file.arrayBuffer();
-        currentSignatureData = parseSWFSignature(arrayBuffer);
-        currentTagData = parseSWFTags(arrayBuffer);
-        terminal.textContent = currentSignatureData + '\n\n' + currentTagData;
+        
+        // Store the array buffer for direct WebGL rendering
+        currentArrayBuffer = arrayBuffer;
+        
+        const parsedInfo = parseSWFSignature(arrayBuffer);
+        const tagInfo = parseSWFTags(arrayBuffer);
+        terminal.textContent = parsedInfo + '\n\n' + tagInfo;
         
         // Update WebGL info
-        webglInfo.textContent = `${file.name} loaded. Ready to render.`;
+        webglInfo.textContent = `${file.name} loaded. Ready to render with direct SWF parsing.`;
       } catch (err) {
         terminal.textContent = 'Error reading SWF file: ' + err.message;
       }
