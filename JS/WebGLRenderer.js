@@ -2,7 +2,7 @@
  * WebGL Flash Game Renderer for Flash-JS Repository
  * Integrates with Parse.js webpage terminal output for debugging
  * Optimized for big Flash games performance
- * PHASE 2: Direct integration with Flash-JS ShapeParsers and DisplayParsers objects
+ * PHASE 2: Fixed shape rendering integration with Flash-JS ShapeParsers and DisplayParsers
  */
 
 class WebGLFlashRenderer {
@@ -30,7 +30,8 @@ class WebGLFlashRenderer {
         // Flash-JS parser integration
         this.shapeParsers = null;
         this.displayParsers = null;
-        this.parsedTags = [];
+        this.stageWidth = 550;
+        this.stageHeight = 400;
         
         this.initialize();
     }
@@ -47,8 +48,7 @@ class WebGLFlashRenderer {
             // Set up WebGL state
             this.gl.enable(this.gl.BLEND);
             this.gl.blendFunc(this.gl.SRC_ALPHA, this.gl.ONE_MINUS_SRC_ALPHA);
-            this.gl.enable(this.gl.DEPTH_TEST);
-            this.gl.depthFunc(this.gl.LEQUAL);
+            this.gl.disable(this.gl.DEPTH_TEST); // Disable depth test for 2D rendering
 
             // Create shader program
             this.createShaderProgram();
@@ -93,19 +93,16 @@ class WebGLFlashRenderer {
         // Vertex shader for sprite rendering
         const vertexShaderSource = `
             attribute vec2 a_position;
-            attribute vec2 a_texCoord;
             attribute vec4 a_color;
             
             uniform mat4 u_projectionMatrix;
             uniform mat4 u_viewMatrix;
             uniform mat4 u_modelMatrix;
             
-            varying vec2 v_texCoord;
             varying vec4 v_color;
             
             void main() {
                 gl_Position = u_projectionMatrix * u_viewMatrix * u_modelMatrix * vec4(a_position, 0.0, 1.0);
-                v_texCoord = a_texCoord;
                 v_color = a_color;
             }
         `;
@@ -114,18 +111,10 @@ class WebGLFlashRenderer {
         const fragmentShaderSource = `
             precision mediump float;
             
-            uniform sampler2D u_texture;
-            uniform bool u_useTexture;
-            
-            varying vec2 v_texCoord;
             varying vec4 v_color;
             
             void main() {
-                if (u_useTexture) {
-                    gl_FragColor = texture2D(u_texture, v_texCoord) * v_color;
-                } else {
-                    gl_FragColor = v_color;
-                }
+                gl_FragColor = v_color;
             }
         `;
 
@@ -143,14 +132,11 @@ class WebGLFlashRenderer {
 
         // Get attribute and uniform locations
         this.attributes.position = this.gl.getAttribLocation(this.program, 'a_position');
-        this.attributes.texCoord = this.gl.getAttribLocation(this.program, 'a_texCoord');
         this.attributes.color = this.gl.getAttribLocation(this.program, 'a_color');
 
         this.uniforms.projectionMatrix = this.gl.getUniformLocation(this.program, 'u_projectionMatrix');
         this.uniforms.viewMatrix = this.gl.getUniformLocation(this.program, 'u_viewMatrix');
         this.uniforms.modelMatrix = this.gl.getUniformLocation(this.program, 'u_modelMatrix');
-        this.uniforms.texture = this.gl.getUniformLocation(this.program, 'u_texture');
-        this.uniforms.useTexture = this.gl.getUniformLocation(this.program, 'u_useTexture');
 
         this.logToTerminal('Shader program created successfully');
     }
@@ -170,14 +156,9 @@ class WebGLFlashRenderer {
     }
 
     createBuffers() {
-        // Create vertex buffer for shapes (position + texCoord)
+        // Create vertex buffer for shapes (position + color)
         this.buffers.vertex = this.gl.createBuffer();
-        
-        // Create color buffer
         this.buffers.color = this.gl.createBuffer();
-        
-        // Create index buffer for triangle rendering
-        this.buffers.index = this.gl.createBuffer();
 
         this.logToTerminal('WebGL buffers created');
     }
@@ -187,7 +168,8 @@ class WebGLFlashRenderer {
         const height = this.canvas.height;
         
         // Create orthographic projection matrix for 2D Flash content
-        this.setOrthographicMatrix(this.projectionMatrix, 0, width, height, 0, -1000, 1000);
+        // Use Flash coordinate system: origin at top-left, Y increases downward
+        this.setOrthographicMatrix(this.projectionMatrix, 0, width, 0, height, -1000, 1000);
         
         this.logToTerminal(`Projection matrix updated for ${width}x${height}`);
     }
@@ -233,6 +215,11 @@ class WebGLFlashRenderer {
             this.parseTagsDirectly(arrayBuffer);
 
             this.logToTerminal(`Loaded ${this.shapes.size} shapes and ${this.displayList.size} display objects for rendering`);
+
+            // Create test shape if no shapes were found
+            if (this.shapes.size === 0) {
+                this.createTestShape();
+            }
 
         } catch (error) {
             this.logToTerminal(`Error loading Flash-JS SWF data: ${error.message}`);
@@ -396,22 +383,35 @@ class WebGLFlashRenderer {
         const bounds = this.extractShapeBounds(shapeData);
         const color = this.extractShapeColor(shapeData);
         
-        // Create rectangle vertices from bounds (convert twips to pixels)
-        const x1 = (bounds.xMin || 0) / 20;
-        const y1 = (bounds.yMin || 0) / 20;
-        const x2 = (bounds.xMax || 1000) / 20;
-        const y2 = (bounds.yMax || 1000) / 20;
+        // Convert bounds from twips to pixels and ensure visibility
+        let x1 = (bounds.xMin || 0) / 20;
+        let y1 = (bounds.yMin || 0) / 20;
+        let x2 = (bounds.xMax || 2000) / 20;
+        let y2 = (bounds.yMax || 2000) / 20;
         
-        // Ensure we have a visible rectangle
-        if (x2 <= x1) x2 = x1 + 50;
-        if (y2 <= y1) y2 = y1 + 50;
+        // Ensure we have a visible rectangle within the stage
+        if (x2 <= x1) {
+            x1 = 50 + (shapeData.shapeId * 10);
+            x2 = x1 + 80;
+        }
+        if (y2 <= y1) {
+            y1 = 50 + (shapeData.shapeId * 10);
+            y2 = y1 + 60;
+        }
+        
+        // Clamp to stage bounds
+        x1 = Math.max(0, Math.min(x1, this.stageWidth - 10));
+        y1 = Math.max(0, Math.min(y1, this.stageHeight - 10));
+        x2 = Math.max(x1 + 10, Math.min(x2, this.stageWidth));
+        y2 = Math.max(y1 + 10, Math.min(y2, this.stageHeight));
         
         // Create two triangles for rectangle
         const vertices = new Float32Array([
-            x1, y1,   // Bottom left
+            x1, y1,   // Triangle 1: Bottom left
             x2, y1,   // Bottom right
             x1, y2,   // Top left
-            x2, y1,   // Bottom right
+            
+            x2, y1,   // Triangle 2: Bottom right
             x2, y2,   // Top right
             x1, y2    // Top left
         ]);
@@ -435,7 +435,7 @@ class WebGLFlashRenderer {
         
         this.shapes.set(shapeData.shapeId, renderableShape);
         
-        this.logToTerminal(`Created renderable shape ${shapeData.shapeId}: (${x1}, ${y1}) to (${x2}, ${y2})`);
+        this.logToTerminal(`Created renderable shape ${shapeData.shapeId}: (${x1.toFixed(1)}, ${y1.toFixed(1)}) to (${x2.toFixed(1)}, ${y2.toFixed(1)}) color:(${color.r.toFixed(2)}, ${color.g.toFixed(2)}, ${color.b.toFixed(2)})`);
     }
 
     extractShapeBounds(shapeData) {
@@ -444,13 +444,13 @@ class WebGLFlashRenderer {
             return {
                 xMin: shapeData.bounds.xMin || 0,
                 yMin: shapeData.bounds.yMin || 0,
-                xMax: shapeData.bounds.xMax || 1000,
-                yMax: shapeData.bounds.yMax || 1000
+                xMax: shapeData.bounds.xMax || 2000,
+                yMax: shapeData.bounds.yMax || 1500
             };
         }
         
         // Default bounds for visibility
-        return { xMin: 100, yMin: 100, xMax: 400, yMax: 300 };
+        return { xMin: 100, yMin: 100, xMax: 2000, yMax: 1500 };
     }
 
     extractShapeColor(shapeData) {
@@ -459,17 +459,17 @@ class WebGLFlashRenderer {
             const firstFill = shapeData.fillStyles.styles[0];
             if (firstFill.type === 'solid' && firstFill.color) {
                 return {
-                    r: (firstFill.color.red || 0) / 255,
-                    g: (firstFill.color.green || 0) / 255,
-                    b: (firstFill.color.blue || 0) / 255,
+                    r: (firstFill.color.red || 128) / 255,
+                    g: (firstFill.color.green || 128) / 255,
+                    b: (firstFill.color.blue || 255) / 255,
                     a: (firstFill.color.alpha !== undefined ? firstFill.color.alpha : 255) / 255
                 };
             }
         }
         
-        // Generate a visible color based on shape ID
-        const hue = (shapeData.shapeId * 137.5) % 360; // Golden angle for good distribution
-        return this.hslToRgb(hue / 360, 0.7, 0.5);
+        // Generate a bright, visible color based on shape ID
+        const hue = (shapeData.shapeId * 60) % 360; // Spread colors widely
+        return this.hslToRgb(hue / 360, 0.8, 0.6); // High saturation and brightness
     }
 
     hslToRgb(h, s, l) {
@@ -514,6 +514,8 @@ class WebGLFlashRenderer {
         };
         
         this.displayList.set(depth, displayObject);
+        
+        this.logToTerminal(`Display object created: depth ${depth}, character ${characterId}`);
     }
 
     extractTransformMatrix(displayData) {
@@ -525,8 +527,8 @@ class WebGLFlashRenderer {
             const m = displayData.matrix;
             
             // Apply scale
-            if (m.scaleX !== undefined) matrix[0] = m.scaleX;
-            if (m.scaleY !== undefined) matrix[5] = m.scaleY;
+            if (m.scaleX !== undefined && m.scaleX !== 0) matrix[0] = m.scaleX;
+            if (m.scaleY !== undefined && m.scaleY !== 0) matrix[5] = m.scaleY;
             
             // Apply rotation/skew (simplified)
             if (m.rotateSkew0 !== undefined) matrix[1] = m.rotateSkew0;
@@ -535,6 +537,8 @@ class WebGLFlashRenderer {
             // Apply translation (convert twips to pixels)
             if (m.translateX !== undefined) matrix[12] = m.translateX / 20;
             if (m.translateY !== undefined) matrix[13] = m.translateY / 20;
+            
+            this.logToTerminal(`Transform matrix: translate(${(m.translateX || 0)/20}, ${(m.translateY || 0)/20}) scale(${m.scaleX || 1}, ${m.scaleY || 1})`);
         }
         
         return matrix;
@@ -547,14 +551,66 @@ class WebGLFlashRenderer {
             if (line.includes('Stage Dimensions:')) {
                 const match = line.match(/(\d+)\s*×\s*(\d+)\s*pixels/);
                 if (match) {
-                    this.canvas.width = parseInt(match[1]);
-                    this.canvas.height = parseInt(match[2]);
+                    this.stageWidth = parseInt(match[1]);
+                    this.stageHeight = parseInt(match[2]);
+                    this.canvas.width = this.stageWidth;
+                    this.canvas.height = this.stageHeight;
                     this.updateProjectionMatrix();
-                    this.logToTerminal(`Viewport set to ${this.canvas.width}x${this.canvas.height} from Flash-JS signature data`);
+                    this.logToTerminal(`Viewport set to ${this.stageWidth}x${this.stageHeight} from Flash-JS signature data`);
                     break;
                 }
             }
         }
+    }
+
+    createTestShape() {
+        // Create a test shape if no shapes were parsed
+        this.logToTerminal('No shapes found - creating test shape for visibility');
+        
+        const vertices = new Float32Array([
+            50, 50,    // Triangle 1: Bottom left
+            150, 50,   // Bottom right
+            50, 100,   // Top left
+            
+            150, 50,   // Triangle 2: Bottom right
+            150, 100,  // Top right
+            50, 100    // Top left
+        ]);
+        
+        const colors = new Float32Array([
+            1.0, 0.0, 0.0, 1.0,  // Red
+            0.0, 1.0, 0.0, 1.0,  // Green
+            0.0, 0.0, 1.0, 1.0,  // Blue
+            0.0, 1.0, 0.0, 1.0,  // Green
+            1.0, 1.0, 0.0, 1.0,  // Yellow
+            0.0, 0.0, 1.0, 1.0   // Blue
+        ]);
+        
+        const testShape = {
+            vertices: vertices,
+            colors: colors,
+            primitiveType: this.gl.TRIANGLES,
+            vertexCount: 6
+        };
+        
+        this.shapes.set(999, testShape);
+        
+        const testDisplayObject = {
+            characterId: 999,
+            depth: 1,
+            matrix: this.createIdentityMatrix(),
+            visible: true
+        };
+        
+        this.displayList.set(1, testDisplayObject);
+        
+        this.logToTerminal('Test shape created at (50,50) to (150,100) with rainbow colors');
+    }
+
+    createIdentityMatrix() {
+        const matrix = new Float32Array(16);
+        this.setIdentityMatrix(matrix);
+        return matrix;
     }
 
     // Enhanced render loop with actual shape rendering
@@ -567,13 +623,13 @@ class WebGLFlashRenderer {
         this.frameCount++;
         if (this.frameCount % 60 === 0 && this.displayList.size > 0) {
             this.fps = Math.round(1000 / deltaTime);
-            this.logToTerminal(`Rendering at ${this.fps} FPS with ${this.displayList.size} display objects`);
+            this.logToTerminal(`Rendering at ${this.fps} FPS with ${this.displayList.size} display objects, ${this.shapes.size} shapes`);
         }
 
-        // Clear canvas
+        // Clear canvas with white background for visibility
         this.gl.viewport(0, 0, this.canvas.width, this.canvas.height);
-        this.gl.clearColor(0.9, 0.9, 0.9, 1.0); // Light gray background for visibility
-        this.gl.clear(this.gl.COLOR_BUFFER_BIT | this.gl.DEPTH_BUFFER_BIT);
+        this.gl.clearColor(1.0, 1.0, 1.0, 1.0); // White background
+        this.gl.clear(this.gl.COLOR_BUFFER_BIT);
 
         // Use shader program
         this.gl.useProgram(this.program);
@@ -581,7 +637,6 @@ class WebGLFlashRenderer {
         // Set uniforms
         this.gl.uniformMatrix4fv(this.uniforms.projectionMatrix, false, this.projectionMatrix);
         this.gl.uniformMatrix4fv(this.uniforms.viewMatrix, false, this.viewMatrix);
-        this.gl.uniform1i(this.uniforms.useTexture, 0); // No textures for Phase 2
 
         // Render display list in depth order
         this.renderDisplayList();
@@ -597,16 +652,28 @@ class WebGLFlashRenderer {
         const sortedDisplayObjects = Array.from(this.displayList.entries())
             .sort(([depthA], [depthB]) => depthA - depthB);
         
+        let renderedCount = 0;
+        
         for (const [depth, displayObject] of sortedDisplayObjects) {
             if (displayObject.visible && displayObject.characterId !== undefined) {
-                this.renderDisplayObject(displayObject);
+                const wasRendered = this.renderDisplayObject(displayObject);
+                if (wasRendered) renderedCount++;
             }
+        }
+        
+        if (this.frameCount % 120 === 0 && renderedCount > 0) {
+            this.logToTerminal(`Rendered ${renderedCount} display objects`);
         }
     }
 
     renderDisplayObject(displayObject) {
         const shape = this.shapes.get(displayObject.characterId);
-        if (!shape) return;
+        if (!shape) {
+            if (this.frameCount % 300 === 0) {
+                this.logToTerminal(`Warning: No shape found for character ID ${displayObject.characterId}`);
+            }
+            return false;
+        }
         
         // Set model matrix for this display object
         this.gl.uniformMatrix4fv(this.uniforms.modelMatrix, false, displayObject.matrix);
@@ -623,11 +690,10 @@ class WebGLFlashRenderer {
         this.gl.enableVertexAttribArray(this.attributes.color);
         this.gl.vertexAttribPointer(this.attributes.color, 4, this.gl.FLOAT, false, 0, 0);
         
-        // Disable texture coordinates for Phase 2
-        this.gl.disableVertexAttribArray(this.attributes.texCoord);
-        
         // Draw the shape
         this.gl.drawArrays(shape.primitiveType, 0, shape.vertexCount);
+        
+        return true;
     }
 
     startRendering() {
