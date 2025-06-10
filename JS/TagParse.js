@@ -1,5 +1,5 @@
 /* 
- * SWF Tag Parser - v3.1
+ * SWF Tag Parser - v3.2
  * Supports:
  * - Tag header parsing (type and length)
  * - Short and long format tag headers
@@ -24,6 +24,7 @@
  * - ENHANCED: Added PlaceObject3 support (Tag 70)
  * - ADDED: Scaling grid parsing support (Tag 78)
  * - ENHANCED: Added AS3Parsers integration for comprehensive ActionScript 3.0 support
+ * - NEW: Integrated ShapeTranslator for WebGL rendering support in Flash-JS repository
  */
 
 // Global variables for tag filtering
@@ -32,6 +33,11 @@ window.showContentParsing = false;
 window.showUnparsedOnly = false;
 window.showErrorsOnly = false;
 window.tagTypeFilter = null; // Tag type filtering
+
+// Initialize global translated shape data for WebGL rendering
+if (!window.translatedShapeData) {
+  window.translatedShapeData = new Map();
+}
 
 // Tag name mapping
 const tagNames = {
@@ -232,6 +238,9 @@ function parseSWFTags(arrayBuffer) {
     return output.join('\n');
   }
   
+  // Clear previous translated shape data for Flash-JS repository WebGL integration
+  window.translatedShapeData.clear();
+  
   // Read signature to determine processing method
   const signature = String.fromCharCode(bytes[0], bytes[1], bytes[2]);
   let tagData;
@@ -365,6 +374,13 @@ function parseTagData(tagData) {
   let morphParser = null;
   let scalingParser = null;
   
+  // Initialize ShapeTranslator for WebGL integration in Flash-JS repository
+  let shapeTranslator = null;
+  if (typeof ShapeTranslator !== 'undefined') {
+    shapeTranslator = new ShapeTranslator();
+    output.push("ShapeTranslator initialized for WebGL integration in Flash-JS repository");
+  }
+  
   if (window.showContentParsing || window.showErrorsOnly) {
     if (typeof ControlParsers !== 'undefined') {
       controlParser = new ControlParsers();
@@ -432,6 +448,7 @@ function parseTagData(tagData) {
   let unparsedContentTags = 0;
   let errorContentTags = 0;
   let skippedByFilter = 0;
+  let translatedShapeCount = 0;
   
   while (offset < tagData.length) {
     const tagHeader = parseTagHeader(tagData, offset);
@@ -495,6 +512,31 @@ function parseTagData(tagData) {
             parsedContent = assetParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
           } else if (shapeParser && isShapeTag) {
             parsedContent = shapeParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
+            
+            // NEW: Integrate ShapeTranslator for WebGL rendering in Flash-JS repository
+            if (parsedContent && parsedContent.data && shapeTranslator) {
+              try {
+                const translatedGeometry = shapeTranslator.translateShape(parsedContent.data);
+                if (translatedGeometry && parsedContent.data.shapeId !== undefined) {
+                  window.translatedShapeData.set(parsedContent.data.shapeId, translatedGeometry);
+                  translatedShapeCount++;
+                  
+                  // Add translation info to parsed content for debugging in Parse.js terminal
+                  parsedContent.data.webglTranslation = {
+                    translated: true,
+                    vertexCount: translatedGeometry.vertexCount,
+                    triangleCount: translatedGeometry.triangleCount,
+                    method: translatedGeometry.method
+                  };
+                }
+              } catch (translationError) {
+                // Add translation error to parsed content for debugging in Parse.js terminal
+                parsedContent.data.webglTranslation = {
+                  translated: false,
+                  error: translationError.message
+                };
+              }
+            }
           } else if (spriteParser && isSpriteTag) {
             parsedContent = spriteParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
           } else if (fontParser && isFontTag) {
@@ -641,6 +683,24 @@ function parseTagData(tagData) {
             parsedContent = assetParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
           } else if (shapeParser && isShapeTag) {
             parsedContent = shapeParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
+            
+            // NEW: Integrate ShapeTranslator for WebGL rendering in Flash-JS repository (error mode)
+            if (parsedContent && parsedContent.data && shapeTranslator) {
+              try {
+                const translatedGeometry = shapeTranslator.translateShape(parsedContent.data);
+                if (translatedGeometry && parsedContent.data.shapeId !== undefined) {
+                  window.translatedShapeData.set(parsedContent.data.shapeId, translatedGeometry);
+                  translatedShapeCount++;
+                }
+              } catch (translationError) {
+                // Shape translation error is also an error condition
+                parsedContent.data.webglTranslation = {
+                  translated: false,
+                  error: translationError.message
+                };
+                hasError = true;
+              }
+            }
           } else if (spriteParser && isSpriteTag) {
             parsedContent = spriteParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
           } else if (fontParser && isFontTag) {
@@ -724,7 +784,7 @@ function parseTagData(tagData) {
       }
       
     } else {
-      // NORMAL TAG HEADER MODE
+      // NORMAL TAG HEADER MODE - Also process shapes for WebGL translation in Flash-JS repository
       if (shouldDisplay) {
         let tagDisplay = `Tag ${tagIndex}: Type ${tagHeader.type} (${tagName}), Length ${tagHeader.length} bytes`;
         if (isUnknown) {
@@ -732,6 +792,28 @@ function parseTagData(tagData) {
         }
         output.push(tagDisplay);
         displayedTags++;
+      }
+      
+      // NEW: Process shape tags for WebGL translation even in header mode
+      if (isShapeTag && shapeParser && shapeTranslator && tagHeader.length >= 0) {
+        try {
+          const contentOffset = offset + tagHeader.headerSize;
+          const parsedContent = shapeParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
+          
+          if (parsedContent && parsedContent.data && parsedContent.data.shapeId !== undefined) {
+            try {
+              const translatedGeometry = shapeTranslator.translateShape(parsedContent.data);
+              if (translatedGeometry) {
+                window.translatedShapeData.set(parsedContent.data.shapeId, translatedGeometry);
+                translatedShapeCount++;
+              }
+            } catch (translationError) {
+              // Silent failure in header mode - translation errors don't affect header display
+            }
+          }
+        } catch (parseError) {
+          // Silent failure in header mode - parse errors don't affect header display
+        }
       }
     }
     
@@ -764,6 +846,11 @@ function parseTagData(tagData) {
       output.push(`Tags filtered out: ${skippedByFilter}`);
     }
     
+    // NEW: Add ShapeTranslator summary for Flash-JS repository WebGL integration
+    if (translatedShapeCount > 0) {
+      output.push(`Shapes translated for WebGL: ${translatedShapeCount}`);
+    }
+    
     if (parsedContentTags === 0) {
       output.push("\nNo tags could be parsed for content.");
       output.push("Supported tag types: Control, Display, Asset, ActionScript, Shape, Sprite, Font, Text, Bitmap, Sound, Button, Video, Morph, and Scaling tags");
@@ -791,6 +878,11 @@ function parseTagData(tagData) {
       output.push(`Tags filtered out: ${skippedByFilter}`);
     }
     
+    // NEW: Add ShapeTranslator summary for Flash-JS repository WebGL integration
+    if (translatedShapeCount > 0) {
+      output.push(`Shapes translated for WebGL: ${translatedShapeCount}`);
+    }
+    
     if (errorContentTags === 0) {
       output.push("\nNo parsing errors detected!");
       output.push("All parseable tags were processed successfully.");
@@ -804,6 +896,11 @@ function parseTagData(tagData) {
     
   } else {
     output.push(`Total tags parsed: ${tagIndex}, Displayed: ${displayedTags}`);
+    
+    // NEW: Add ShapeTranslator summary for Flash-JS repository WebGL integration
+    if (translatedShapeCount > 0) {
+      output.push(`Shapes translated for WebGL rendering: ${translatedShapeCount}`);
+    }
     
     if (unknownTags.size > 0) {
       output.push("------------------------------");
