@@ -2,8 +2,8 @@
  * WebGL Flash Game Renderer for Flash-JS Repository
  * Integrates with Parse.js webpage terminal output for debugging
  * Optimized for big Flash games performance
- * PHASE 2: Fixed shape rendering integration with Flash-JS ShapeParsers and DisplayParsers
- * FIXED: Auto-create display objects for all parsed shapes when no display list found
+ * PHASE 3: Real shape tessellation - converts Flash vector graphics into triangulated geometry
+ * ENHANCED: Processes actual shapeRecords from ShapeParsers instead of just bounding boxes
  */
 
 class WebGLFlashRenderer {
@@ -40,6 +40,14 @@ class WebGLFlashRenderer {
         this.shapeIdMap = new Map(); // Track all shape IDs found
         this.displayObjectCharacterIds = new Set(); // Track all character IDs referenced
         
+        // Shape tessellation state
+        this.tessellationDebug = true;
+        this.currentPenX = 0;
+        this.currentPenY = 0;
+        this.currentFillStyle0 = 0;
+        this.currentFillStyle1 = 0;
+        this.currentLineStyle = 0;
+        
         this.initialize();
     }
 
@@ -72,7 +80,7 @@ class WebGLFlashRenderer {
             // Initialize Flash-JS parsers
             this.initializeParsers();
 
-            this.logToTerminal('WebGL Flash Renderer initialized successfully');
+            this.logToTerminal('WebGL Flash Renderer initialized successfully with shape tessellation');
             
         } catch (error) {
             this.logToTerminal(`WebGL initialization failed: ${error.message}`);
@@ -84,7 +92,7 @@ class WebGLFlashRenderer {
         try {
             if (typeof ShapeParsers !== 'undefined') {
                 this.shapeParsers = new ShapeParsers();
-                this.logToTerminal('ShapeParsers initialized for WebGL rendering');
+                this.logToTerminal('ShapeParsers initialized for WebGL rendering with tessellation');
             } else {
                 this.logToTerminal('ERROR: ShapeParsers not available');
             }
@@ -215,7 +223,7 @@ class WebGLFlashRenderer {
 
     // Direct integration with Flash-JS SWF tag parsing pipeline
     loadFromFlashJSSWFData(arrayBuffer) {
-        this.logToTerminal('=== STARTING FLASH-JS SWF DATA LOADING ===');
+        this.logToTerminal('=== STARTING FLASH-JS SWF DATA LOADING WITH TESSELLATION ===');
 
         try {
             // Clear existing data
@@ -310,7 +318,7 @@ class WebGLFlashRenderer {
         let offset = 0;
         let tagIndex = 0;
         
-        this.logToTerminal('=== PARSING TAGS FOR RENDERING ===');
+        this.logToTerminal('=== PARSING TAGS FOR RENDERING WITH TESSELLATION ===');
         
         while (offset < tagData.length && tagIndex < 100) {
             const tagHeader = this.parseTagHeader(tagData, offset);
@@ -328,7 +336,7 @@ class WebGLFlashRenderer {
                     try {
                         const parsedShape = this.shapeParsers.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
                         if (parsedShape && parsedShape.data && parsedShape.data.shapeId !== undefined) {
-                            this.processShapeForRendering(parsedShape.data);
+                            this.processShapeForTessellatedRendering(parsedShape.data);
                             this.shapeIdMap.set(parsedShape.data.shapeId, true);
                         }
                     } catch (error) {
@@ -408,8 +416,347 @@ class WebGLFlashRenderer {
         };
     }
 
-    processShapeForRendering(shapeData) {
-        this.logToTerminal(`Processing shape for rendering: ID ${shapeData.shapeId}`);
+    // NEW: Real shape tessellation method
+    processShapeForTessellatedRendering(shapeData) {
+        this.logToTerminal(`=== TESSELLATING SHAPE ${shapeData.shapeId} ===`);
+        
+        try {
+            // Reset pen position and style state for each shape
+            this.currentPenX = 0;
+            this.currentPenY = 0;
+            this.currentFillStyle0 = 0;
+            this.currentFillStyle1 = 0;
+            this.currentLineStyle = 0;
+            
+            // Extract shape data from Flash-JS ShapeParsers
+            const bounds = this.extractShapeBounds(shapeData);
+            const fillStyles = shapeData.fillStyles || { styles: [] };
+            const lineStyles = shapeData.lineStyles || { styles: [] };
+            const shapeRecords = shapeData.shapeRecords || { records: [] };
+            
+            this.logToTerminal(`Shape ${shapeData.shapeId}: ${shapeRecords.records.length} records, ${fillStyles.styles.length} fills, ${lineStyles.styles.length} lines`);
+            
+            // Build path segments from shape records
+            const pathSegments = this.buildPathSegmentsFromShapeRecords(shapeRecords.records);
+            
+            // Tessellate paths into triangles
+            const tessellatedTriangles = this.tessellatePathsToTriangles(pathSegments, fillStyles.styles, bounds);
+            
+            // Create renderable geometry
+            const renderableShape = this.createRenderableShapeFromTriangles(tessellatedTriangles, shapeData.shapeId);
+            
+            // Store the tessellated shape
+            this.shapes.set(shapeData.shapeId, renderableShape);
+            
+            this.logToTerminal(`Shape ${shapeData.shapeId} tessellated: ${renderableShape.vertexCount} vertices, ${renderableShape.triangleCount} triangles`);
+            
+        } catch (error) {
+            this.logToTerminal(`Error tessellating shape ${shapeData.shapeId}: ${error.message}`);
+            
+            // Fallback to bounding box rectangle
+            this.processShapeForFallbackRendering(shapeData);
+        }
+    }
+
+    // NEW: Build path segments from Flash shape records
+    buildPathSegmentsFromShapeRecords(shapeRecords) {
+        const pathSegments = [];
+        let currentPath = null;
+        
+        this.logToTerminal(`Building paths from ${shapeRecords.length} shape records`);
+        
+        for (let i = 0; i < shapeRecords.length && i < 500; i++) { // Limit for performance
+            const record = shapeRecords[i];
+            
+            if (record.type === 'style_change') {
+                // Handle style changes and move operations
+                if (record.flags.moveTo) {
+                    // Convert twips to pixels
+                    this.currentPenX = (record.moveToX || 0) / 20;
+                    this.currentPenY = (record.moveToY || 0) / 20;
+                    
+                    // Start new path
+                    if (currentPath && currentPath.edges.length > 0) {
+                        pathSegments.push(currentPath);
+                    }
+                    
+                    currentPath = {
+                        startX: this.currentPenX,
+                        startY: this.currentPenY,
+                        edges: [],
+                        fillStyle0: record.fillStyle0 || this.currentFillStyle0,
+                        fillStyle1: record.fillStyle1 || this.currentFillStyle1,
+                        lineStyle: record.lineStyle || this.currentLineStyle
+                    };
+                }
+                
+                // Update current styles
+                if (record.fillStyle0 !== undefined) this.currentFillStyle0 = record.fillStyle0;
+                if (record.fillStyle1 !== undefined) this.currentFillStyle1 = record.fillStyle1;
+                if (record.lineStyle !== undefined) this.currentLineStyle = record.lineStyle;
+                
+            } else if (record.type === 'straight_edge') {
+                // Add straight line edge
+                if (!currentPath) {
+                    currentPath = {
+                        startX: this.currentPenX,
+                        startY: this.currentPenY,
+                        edges: [],
+                        fillStyle0: this.currentFillStyle0,
+                        fillStyle1: this.currentFillStyle1,
+                        lineStyle: this.currentLineStyle
+                    };
+                }
+                
+                const deltaX = (record.deltaX || 0) / 20;
+                const deltaY = (record.deltaY || 0) / 20;
+                const endX = this.currentPenX + deltaX;
+                const endY = this.currentPenY + deltaY;
+                
+                currentPath.edges.push({
+                    type: 'line',
+                    startX: this.currentPenX,
+                    startY: this.currentPenY,
+                    endX: endX,
+                    endY: endY
+                });
+                
+                this.currentPenX = endX;
+                this.currentPenY = endY;
+                
+            } else if (record.type === 'curved_edge') {
+                // Add curved edge (simplified to line segments)
+                if (!currentPath) {
+                    currentPath = {
+                        startX: this.currentPenX,
+                        startY: this.currentPenY,
+                        edges: [],
+                        fillStyle0: this.currentFillStyle0,
+                        fillStyle1: this.currentFillStyle1,
+                        lineStyle: this.currentLineStyle
+                    };
+                }
+                
+                // Convert control and anchor deltas from twips to pixels
+                const controlDeltaX = (record.controlDeltaX || 0) / 20;
+                const controlDeltaY = (record.controlDeltaY || 0) / 20;
+                const anchorDeltaX = (record.anchorDeltaX || 0) / 20;
+                const anchorDeltaY = (record.anchorDeltaY || 0) / 20;
+                
+                const controlX = this.currentPenX + controlDeltaX;
+                const controlY = this.currentPenY + controlDeltaY;
+                const endX = controlX + anchorDeltaX;
+                const endY = controlY + anchorDeltaY;
+                
+                // Subdivide curve into line segments (simple approach)
+                const curveSegments = this.subdivideCurve(
+                    this.currentPenX, this.currentPenY,
+                    controlX, controlY,
+                    endX, endY,
+                    4 // subdivision steps
+                );
+                
+                for (const segment of curveSegments) {
+                    currentPath.edges.push(segment);
+                }
+                
+                this.currentPenX = endX;
+                this.currentPenY = endY;
+                
+            } else if (record.type === 'end') {
+                break;
+            }
+        }
+        
+        // Add final path
+        if (currentPath && currentPath.edges.length > 0) {
+            pathSegments.push(currentPath);
+        }
+        
+        this.logToTerminal(`Built ${pathSegments.length} path segments`);
+        return pathSegments;
+    }
+
+    // NEW: Subdivide Bezier curve into line segments
+    subdivideCurve(x0, y0, x1, y1, x2, y2, steps) {
+        const segments = [];
+        
+        for (let i = 0; i < steps; i++) {
+            const t1 = i / steps;
+            const t2 = (i + 1) / steps;
+            
+            // Quadratic Bezier curve evaluation
+            const startX = (1 - t1) * (1 - t1) * x0 + 2 * (1 - t1) * t1 * x1 + t1 * t1 * x2;
+            const startY = (1 - t1) * (1 - t1) * y0 + 2 * (1 - t1) * t1 * y1 + t1 * t1 * y2;
+            const endX = (1 - t2) * (1 - t2) * x0 + 2 * (1 - t2) * t2 * x1 + t2 * t2 * x2;
+            const endY = (1 - t2) * (1 - t2) * y0 + 2 * (1 - t2) * t2 * y1 + t2 * t2 * y2;
+            
+            segments.push({
+                type: 'line',
+                startX: startX,
+                startY: startY,
+                endX: endX,
+                endY: endY
+            });
+        }
+        
+        return segments;
+    }
+
+    // NEW: Tessellate paths into triangles
+    tessellatePathsToTriangles(pathSegments, fillStyles, bounds) {
+        const triangles = [];
+        
+        this.logToTerminal(`Tessellating ${pathSegments.length} paths into triangles`);
+        
+        for (let pathIndex = 0; pathIndex < pathSegments.length && pathIndex < 50; pathIndex++) {
+            const path = pathSegments[pathIndex];
+            
+            if (path.edges.length < 3) {
+                // Need at least 3 edges to form a shape
+                continue;
+            }
+            
+            // Extract fill color
+            const fillColor = this.getFillColorFromStyle(path.fillStyle0 || path.fillStyle1, fillStyles);
+            
+            // Simple fan triangulation from path center
+            const pathTriangles = this.triangulatePathWithFan(path, fillColor);
+            triangles.push(...pathTriangles);
+        }
+        
+        // If no triangles generated, create a fallback triangle from bounds
+        if (triangles.length === 0) {
+            const fallbackColor = this.getFallbackColor(fillStyles);
+            const fallbackTriangles = this.createFallbackTrianglesFromBounds(bounds, fallbackColor);
+            triangles.push(...fallbackTriangles);
+        }
+        
+        this.logToTerminal(`Generated ${triangles.length} triangles`);
+        return triangles;
+    }
+
+    // NEW: Simple fan triangulation
+    triangulatePathWithFan(path, fillColor) {
+        const triangles = [];
+        
+        if (path.edges.length < 3) return triangles;
+        
+        // Calculate path center for fan triangulation
+        const pathPoints = [];
+        pathPoints.push({ x: path.startX, y: path.startY });
+        
+        for (const edge of path.edges) {
+            pathPoints.push({ x: edge.endX, y: edge.endY });
+        }
+        
+        // Calculate centroid
+        let centerX = 0, centerY = 0;
+        for (const point of pathPoints) {
+            centerX += point.x;
+            centerY += point.y;
+        }
+        centerX /= pathPoints.length;
+        centerY /= pathPoints.length;
+        
+        // Create fan triangles
+        for (let i = 0; i < pathPoints.length; i++) {
+            const currentPoint = pathPoints[i];
+            const nextPoint = pathPoints[(i + 1) % pathPoints.length];
+            
+            triangles.push({
+                vertices: [
+                    centerX, centerY,
+                    currentPoint.x, currentPoint.y,
+                    nextPoint.x, nextPoint.y
+                ],
+                color: fillColor
+            });
+        }
+        
+        return triangles;
+    }
+
+    // NEW: Get fill color from style
+    getFillColorFromStyle(fillStyleIndex, fillStyles) {
+        if (fillStyleIndex > 0 && fillStyleIndex <= fillStyles.length) {
+            const fillStyle = fillStyles[fillStyleIndex - 1]; // 1-based indexing
+            
+            if (fillStyle.type === 'solid' && fillStyle.color) {
+                return {
+                    r: (fillStyle.color.red || 128) / 255,
+                    g: (fillStyle.color.green || 128) / 255,
+                    b: (fillStyle.color.blue || 255) / 255,
+                    a: Math.max(0.3, (fillStyle.color.alpha !== undefined ? fillStyle.color.alpha : 255) / 255)
+                };
+            }
+        }
+        
+        // Default bright color
+        return { r: 0.8, g: 0.4, b: 0.9, a: 0.8 };
+    }
+
+    // NEW: Get fallback color
+    getFallbackColor(fillStyles) {
+        if (fillStyles.length > 0) {
+            return this.getFillColorFromStyle(1, fillStyles);
+        }
+        return { r: 0.7, g: 0.3, b: 0.8, a: 0.7 };
+    }
+
+    // NEW: Create fallback triangles from bounds
+    createFallbackTrianglesFromBounds(bounds, fillColor) {
+        // Convert twips to pixels
+        let x1 = (bounds.xMin || 0) / 20;
+        let y1 = (bounds.yMin || 0) / 20;
+        let x2 = (bounds.xMax || 2000) / 20;
+        let y2 = (bounds.yMax || 1500) / 20;
+        
+        // Ensure minimum size
+        if (x2 - x1 < 10) { x2 = x1 + 40; }
+        if (y2 - y1 < 10) { y2 = y1 + 30; }
+        
+        return [
+            {
+                vertices: [x1, y1, x2, y1, x1, y2],
+                color: fillColor
+            },
+            {
+                vertices: [x2, y1, x2, y2, x1, y2],
+                color: fillColor
+            }
+        ];
+    }
+
+    // NEW: Create renderable shape from triangles
+    createRenderableShapeFromTriangles(triangles, shapeId) {
+        const vertices = [];
+        const colors = [];
+        
+        for (const triangle of triangles) {
+            // Add triangle vertices (3 points = 6 coordinates)
+            vertices.push(...triangle.vertices);
+            
+            // Add triangle colors (3 points × 4 components each)
+            for (let i = 0; i < 3; i++) {
+                colors.push(triangle.color.r, triangle.color.g, triangle.color.b, triangle.color.a);
+            }
+        }
+        
+        return {
+            vertices: new Float32Array(vertices),
+            colors: new Float32Array(colors),
+            primitiveType: this.gl.TRIANGLES,
+            vertexCount: triangles.length * 3,
+            triangleCount: triangles.length,
+            bounds: null, // Will be calculated if needed
+            tessellated: true
+        };
+    }
+
+    // Fallback method for shapes that can't be tessellated
+    processShapeForFallbackRendering(shapeData) {
+        this.logToTerminal(`Using fallback rendering for shape ${shapeData.shapeId}`);
         
         // Extract shape bounds and create renderable geometry
         const bounds = this.extractShapeBounds(shapeData);
@@ -462,12 +809,14 @@ class WebGLFlashRenderer {
             colors: colors,
             bounds: bounds,
             primitiveType: this.gl.TRIANGLES,
-            vertexCount: 6
+            vertexCount: 6,
+            triangleCount: 2,
+            tessellated: false
         };
         
         this.shapes.set(shapeData.shapeId, renderableShape);
         
-        this.logToTerminal(`Shape ${shapeData.shapeId} created: (${x1.toFixed(1)}, ${y1.toFixed(1)}) to (${x2.toFixed(1)}, ${y2.toFixed(1)})`);
+        this.logToTerminal(`Fallback shape ${shapeData.shapeId} created: (${x1.toFixed(1)}, ${y1.toFixed(1)}) to (${x2.toFixed(1)}, ${y2.toFixed(1)})`);
     }
 
     extractShapeBounds(shapeData) {
@@ -662,6 +1011,16 @@ class WebGLFlashRenderer {
         this.logToTerminal('=== DEBUG: ALL OBJECTS ===');
         this.logToTerminal(`Shapes in map: ${this.shapes.size}`);
         
+        // Log tessellation stats
+        let tessellatedCount = 0;
+        let totalTriangles = 0;
+        this.shapes.forEach(shape => {
+            if (shape.tessellated) tessellatedCount++;
+            totalTriangles += shape.triangleCount || 0;
+        });
+        
+        this.logToTerminal(`Tessellated shapes: ${tessellatedCount}/${this.shapes.size}, Total triangles: ${totalTriangles}`);
+        
         this.logToTerminal(`Display objects in map: ${this.displayList.size}`);
         const displayObjects = Array.from(this.displayList.entries()).slice(0, 5);
         for (const [depth, obj] of displayObjects) {
@@ -761,7 +1120,7 @@ class WebGLFlashRenderer {
     startRendering() {
         this.renderingActive = true;
         this.render();
-        this.logToTerminal('=== WEBGL RENDERING STARTED ===');
+        this.logToTerminal('=== WEBGL RENDERING STARTED WITH TESSELLATION ===');
     }
 
     stopRendering() {
