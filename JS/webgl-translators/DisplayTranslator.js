@@ -3,6 +3,11 @@
  * Converts DisplayParser output to WebGL display list operations
  * Integrates with Parse.js webpage terminal output for debugging
  * Works with existing ShapeTranslator.js for proper object positioning
+ * FIXED: Direct SWF parsing integration for WebGL renderer pipeline
+ * ENHANCED: Transform matrix calculation for accurate positioning
+ * INTEGRATED: Color transform support for visual effects
+ * ADDED: Display list management for proper depth sorting
+ * NEW: parseSWFForDisplayObjects method for direct WebGL integration
  */
 
 class DisplayTranslator {
@@ -26,6 +31,198 @@ class DisplayTranslator {
         };
         
         this.logToTerminal('DisplayTranslator initialized for Flash-JS repository');
+    }
+
+    /**
+     * Parse SWF data directly for display objects - NEW method for WebGL renderer integration
+     */
+    parseSWFForDisplayObjects(arrayBuffer, translatedShapeData) {
+        this.logToTerminal('=== PARSING SWF FOR DISPLAY OBJECTS (Direct WebGL Integration) ===');
+        
+        const bytes = new Uint8Array(arrayBuffer);
+        
+        if (arrayBuffer.byteLength < 8) {
+            this.logToTerminal('Invalid SWF file: File is too small');
+            return [];
+        }
+        
+        // Clear previous data
+        this.displayObjects.clear();
+        this.characterMap = new Map(translatedShapeData || new Map());
+        this.currentFrame = 0;
+        this.timeline = [];
+        this.translationStats.totalPlaceObjects = 0;
+        this.translationStats.successfulPlacements = 0;
+        this.translationStats.failedPlacements = 0;
+        
+        // Read signature to determine processing method
+        const signature = String.fromCharCode(bytes[0], bytes[1], bytes[2]);
+        let tagData;
+        
+        try {
+            switch (signature) {
+                case 'FWS':
+                    // Calculate tag data offset for uncompressed files
+                    const nbits = (bytes[8] >> 3) & 0x1F;
+                    const rectBits = 5 + (4 * nbits);
+                    const rectBytes = Math.ceil(rectBits / 8);
+                    const tagOffset = 8 + rectBytes + 4; // +4 for frame rate and count
+                    tagData = bytes.slice(tagOffset);
+                    break;
+                    
+                case 'CWS':
+                    // Decompress ZLIB data
+                    const compressedData = arrayBuffer.slice(8);
+                    const decompressedData = pako.inflate(new Uint8Array(compressedData));
+                    
+                    // Calculate tag offset from decompressed data
+                    const nbitsCWS = (decompressedData[0] >> 3) & 0x1F;
+                    const rectBitsCWS = 5 + (4 * nbitsCWS);
+                    const rectBytesCWS = Math.ceil(rectBitsCWS / 8);
+                    const tagOffsetCWS = rectBytesCWS + 4;
+                    tagData = decompressedData.slice(tagOffsetCWS);
+                    break;
+                    
+                case 'ZWS':
+                    this.logToTerminal('LZMA decompression not supported in direct parsing mode');
+                    return [];
+                    
+                default:
+                    this.logToTerminal(`Unknown SWF format: ${signature}`);
+                    return [];
+            }
+            
+            // Parse tags for display objects
+            const displayObjects = this.parseTagsForDisplayObjects(tagData);
+            
+            this.logToTerminal(`Parsed ${displayObjects.length} display objects from SWF data`);
+            this.logToTerminal(`PlaceObject success rate: ${this.translationStats.successfulPlacements}/${this.translationStats.totalPlaceObjects}`);
+            
+            return displayObjects;
+            
+        } catch (error) {
+            this.logToTerminal(`Error parsing SWF for display objects: ${error.message}`);
+            return [];
+        }
+    }
+
+    /**
+     * Parse tag data specifically for display objects - NEW method for Flash-JS repository
+     */
+    parseTagsForDisplayObjects(tagData) {
+        const displayObjects = [];
+        
+        // Initialize DisplayParsers for direct parsing
+        let displayParser = null;
+        if (typeof DisplayParsers !== 'undefined') {
+            displayParser = new DisplayParsers();
+            this.logToTerminal('DisplayParsers initialized for direct SWF parsing');
+        } else {
+            this.logToTerminal('DisplayParsers not available - cannot parse display tags');
+            return [];
+        }
+        
+        let offset = 0;
+        let tagIndex = 0;
+        
+        while (offset < tagData.length) {
+            const tagHeader = this.parseTagHeader(tagData, offset);
+            
+            if (!tagHeader) {
+                this.logToTerminal(`Error parsing tag header at offset ${offset}`);
+                break;
+            }
+            
+            // Process display tags (PlaceObject variants, RemoveObject variants, ShowFrame)
+            const isDisplayTag = [4, 5, 26, 28, 70, 1].includes(tagHeader.type);
+            
+            if (isDisplayTag && tagHeader.length >= 0) {
+                try {
+                    const contentOffset = offset + tagHeader.headerSize;
+                    const parsedContent = displayParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
+                    
+                    if (parsedContent && parsedContent.data) {
+                        let displayObject = null;
+                        
+                        // Process different display tag types
+                        if (tagHeader.type === 4 || tagHeader.type === 26 || tagHeader.type === 70) { // PlaceObject variants
+                            displayObject = this.translatePlaceObject(parsedContent.data, this.characterMap);
+                            if (displayObject) {
+                                displayObjects.push(displayObject);
+                                this.logToTerminal(`Processed PlaceObject: Character ${displayObject.characterId} at depth ${displayObject.depth}`);
+                            }
+                        } else if (tagHeader.type === 5 || tagHeader.type === 28) { // RemoveObject variants
+                            this.translateRemoveObject(parsedContent.data);
+                        } else if (tagHeader.type === 1) { // ShowFrame
+                            this.translateShowFrame(parsedContent.data);
+                        }
+                    }
+                } catch (parseError) {
+                    this.logToTerminal(`Error parsing display tag ${tagHeader.type}: ${parseError.message}`);
+                }
+            }
+            
+            // If this is the End tag (type 0), stop parsing
+            if (tagHeader.type === 0) {
+                this.logToTerminal('End tag reached in display object parsing');
+                break;
+            }
+            
+            // Move to next tag
+            offset += tagHeader.headerSize + tagHeader.length;
+            tagIndex++;
+            
+            // Safety check to prevent infinite loops
+            if (tagIndex > 10000) {
+                this.logToTerminal('Maximum tag limit reached (10000 tags)');
+                break;
+            }
+        }
+        
+        return displayObjects;
+    }
+
+    /**
+     * Parse tag header - duplicated from TagParse.js for direct SWF parsing
+     */
+    parseTagHeader(data, offset) {
+        if (offset + 2 > data.length) {
+            return null;
+        }
+        
+        // Read first 2 bytes
+        const byte1 = data[offset];
+        const byte2 = data[offset + 1];
+        
+        // Extract tag type (upper 10 bits) and length (lower 6 bits)
+        const tagAndLength = (byte2 << 8) | byte1;
+        const tagType = (tagAndLength >> 6) & 0x3FF;
+        const shortLength = tagAndLength & 0x3F;
+        
+        let length, headerSize;
+        
+        if (shortLength === 0x3F) {
+            // Long format: read 4 more bytes for length
+            if (offset + 6 > data.length) {
+                return null;
+            }
+            
+            length = data[offset + 2] | 
+                     (data[offset + 3] << 8) | 
+                     (data[offset + 4] << 16) | 
+                     (data[offset + 5] << 24);
+            headerSize = 6;
+        } else {
+            // Short format
+            length = shortLength;
+            headerSize = 2;
+        }
+        
+        return {
+            type: tagType,
+            length: length,
+            headerSize: headerSize
+        };
     }
 
     /**
