@@ -1,9 +1,8 @@
 /**
  * WebGL Flash Game Renderer for Flash-JS Repository
  * Integrates with Parse.js webpage terminal output for debugging
- * Optimized for big Flash games performance
- * PHASE 4: Proper polygon tessellation using ear-clipping algorithm
- * ENHANCED: Replaces simple fan triangulation with robust ear-clipping for complex Flash shapes
+ * Uses ShapeTranslator.js for clean, pre-processed geometry data
+ * Simplified to focus only on rendering, not shape processing
  */
 
 class WebGLFlashRenderer {
@@ -22,7 +21,7 @@ class WebGLFlashRenderer {
         this.renderingActive = false;
         
         // Rendering state
-        this.shapes = new Map(); // ID -> shape definition
+        this.shapes = new Map(); // ID -> translated geometry
         this.displayList = new Map(); // depth -> display object
         this.textures = new Map();
         this.projectionMatrix = new Float32Array(16);
@@ -31,22 +30,15 @@ class WebGLFlashRenderer {
         // Flash-JS parser integration
         this.shapeParsers = null;
         this.displayParsers = null;
+        this.shapeTranslator = null;
         this.stageWidth = 550;
         this.stageHeight = 400;
         
-        // Debugging state
+        // Debugging state for Flash-JS repository
         this.debugMode = true;
         this.renderAttempts = 0;
-        this.shapeIdMap = new Map(); // Track all shape IDs found
-        this.displayObjectCharacterIds = new Set(); // Track all character IDs referenced
-        
-        // Shape tessellation state
-        this.tessellationDebug = true;
-        this.currentPenX = 0;
-        this.currentPenY = 0;
-        this.currentFillStyle0 = 0;
-        this.currentFillStyle1 = 0;
-        this.currentLineStyle = 0;
+        this.shapeIdMap = new Map();
+        this.displayObjectCharacterIds = new Set();
         
         this.initialize();
     }
@@ -63,7 +55,7 @@ class WebGLFlashRenderer {
             // Set up WebGL state
             this.gl.enable(this.gl.BLEND);
             this.gl.blendFunc(this.gl.SRC_ALPHA, this.gl.ONE_MINUS_SRC_ALPHA);
-            this.gl.disable(this.gl.DEPTH_TEST); // Disable depth test for 2D rendering
+            this.gl.disable(this.gl.DEPTH_TEST);
 
             // Create shader program
             this.createShaderProgram();
@@ -77,10 +69,10 @@ class WebGLFlashRenderer {
             // Initialize view matrix
             this.setIdentityMatrix(this.viewMatrix);
 
-            // Initialize Flash-JS parsers
-            this.initializeParsers();
+            // Initialize Flash-JS parsers and translator
+            this.initializeParsersAndTranslator();
 
-            this.logToTerminal('WebGL Flash Renderer initialized successfully with ear-clipping tessellation');
+            this.logToTerminal('WebGL Flash Renderer initialized with ShapeTranslator integration');
             
         } catch (error) {
             this.logToTerminal(`WebGL initialization failed: ${error.message}`);
@@ -88,21 +80,32 @@ class WebGLFlashRenderer {
         }
     }
 
-    initializeParsers() {
+    initializeParsersAndTranslator() {
         try {
+            // Initialize Flash-JS ShapeParsers
             if (typeof ShapeParsers !== 'undefined') {
                 this.shapeParsers = new ShapeParsers();
-                this.logToTerminal('ShapeParsers initialized for WebGL rendering with ear-clipping tessellation');
+                this.logToTerminal('ShapeParsers initialized for Flash-JS integration');
             } else {
                 this.logToTerminal('ERROR: ShapeParsers not available');
             }
             
+            // Initialize Flash-JS DisplayParsers
             if (typeof DisplayParsers !== 'undefined') {
                 this.displayParsers = new DisplayParsers();
-                this.logToTerminal('DisplayParsers initialized for WebGL rendering');
+                this.logToTerminal('DisplayParsers initialized for Flash-JS integration');
             } else {
                 this.logToTerminal('ERROR: DisplayParsers not available');
             }
+
+            // Initialize ShapeTranslator for clean geometry data
+            if (typeof ShapeTranslator !== 'undefined') {
+                this.shapeTranslator = new ShapeTranslator();
+                this.logToTerminal('ShapeTranslator initialized - clean separation of translation and rendering');
+            } else {
+                this.logToTerminal('ERROR: ShapeTranslator not available - cannot process shapes');
+            }
+            
         } catch (error) {
             this.logToTerminal(`Parser initialization error: ${error.message}`);
         }
@@ -187,7 +190,6 @@ class WebGLFlashRenderer {
         const height = this.canvas.height;
         
         // Create orthographic projection matrix for 2D Flash content
-        // Use standard OpenGL coordinate system: origin at bottom-left
         this.setOrthographicMatrix(this.projectionMatrix, 0, width, height, 0, -1, 1);
         
         this.logToTerminal(`Projection matrix updated for ${width}x${height}`);
@@ -223,7 +225,7 @@ class WebGLFlashRenderer {
 
     // Direct integration with Flash-JS SWF tag parsing pipeline
     loadFromFlashJSSWFData(arrayBuffer) {
-        this.logToTerminal('=== STARTING FLASH-JS SWF DATA LOADING WITH EAR-CLIPPING TESSELLATION ===');
+        this.logToTerminal('=== STARTING FLASH-JS SWF DATA LOADING WITH SHAPE TRANSLATOR ===');
 
         try {
             // Clear existing data
@@ -232,20 +234,20 @@ class WebGLFlashRenderer {
             this.shapeIdMap.clear();
             this.displayObjectCharacterIds.clear();
             
-            // Parse SWF signature data
+            // Parse SWF signature data using Flash-JS Parse.js
             const signatureData = parseSWFSignature(arrayBuffer);
             this.setupViewportFromSignature(signatureData);
 
             // Parse tags directly using Flash-JS tag parsing pipeline
-            this.parseTagsDirectly(arrayBuffer);
+            this.parseTagsWithTranslator(arrayBuffer);
 
             this.logToTerminal(`=== LOADING COMPLETE ===`);
-            this.logToTerminal(`Found shapes: ${this.shapes.size}, Display objects: ${this.displayList.size}`);
+            this.logToTerminal(`Translated shapes: ${this.shapes.size}, Display objects: ${this.displayList.size}`);
 
             // Analyze shape-display object linking
             this.analyzeShapeDisplayLinking();
             
-            // Create display objects for ALL shapes since this SWF doesn't use PlaceObject tags
+            // Create display objects for all translated shapes
             this.createDisplayObjectsForAllShapes();
 
             // Debug log all objects
@@ -256,7 +258,7 @@ class WebGLFlashRenderer {
         }
     }
 
-    parseTagsDirectly(arrayBuffer) {
+    parseTagsWithTranslator(arrayBuffer) {
         const bytes = new Uint8Array(arrayBuffer);
         
         if (arrayBuffer.byteLength < 8) {
@@ -273,23 +275,20 @@ class WebGLFlashRenderer {
         try {
             switch (signature) {
                 case 'FWS':
-                    this.logToTerminal('Processing uncompressed FWS file');
-                    // Calculate tag data offset for uncompressed files
+                    this.logToTerminal('Processing uncompressed FWS file with ShapeTranslator');
                     const rect = parseRECT(bytes, 8);
                     const nbits = (bytes[8] >> 3) & 0x1F;
                     const rectBits = 5 + (4 * nbits);
                     const rectBytes = Math.ceil(rectBits / 8);
-                    const tagOffset = 8 + rectBytes + 4; // +4 for frame rate and count
+                    const tagOffset = 8 + rectBytes + 4;
                     tagData = bytes.slice(tagOffset);
                     break;
                     
                 case 'CWS':
-                    this.logToTerminal('Processing ZLIB compressed CWS file');
-                    // Decompress ZLIB data
+                    this.logToTerminal('Processing ZLIB compressed CWS file with ShapeTranslator');
                     const compressedData = arrayBuffer.slice(8);
                     const decompressedData = pako.inflate(new Uint8Array(compressedData));
                     
-                    // Calculate tag offset from decompressed data
                     const rectCWS = parseRECT(decompressedData, 0);
                     const nbitsCWS = (decompressedData[0] >> 3) & 0x1F;
                     const rectBitsCWS = 5 + (4 * nbitsCWS);
@@ -307,18 +306,18 @@ class WebGLFlashRenderer {
                     return;
             }
             
-            this.parseTagDataForRendering(tagData);
+            this.parseTagDataWithTranslator(tagData);
             
         } catch (error) {
             this.logToTerminal(`Error parsing tags for rendering: ${error.message}`);
         }
     }
 
-    parseTagDataForRendering(tagData) {
+    parseTagDataWithTranslator(tagData) {
         let offset = 0;
         let tagIndex = 0;
         
-        this.logToTerminal('=== PARSING TAGS FOR RENDERING WITH EAR-CLIPPING TESSELLATION ===');
+        this.logToTerminal('=== PARSING TAGS WITH SHAPE TRANSLATOR ===');
         
         while (offset < tagData.length && tagIndex < 100) {
             const tagHeader = this.parseTagHeader(tagData, offset);
@@ -330,22 +329,30 @@ class WebGLFlashRenderer {
             
             const contentOffset = offset + tagHeader.headerSize;
             
-            // Process shape definition tags
+            // Process shape definition tags using ShapeTranslator
             if ([2, 22, 32, 83].includes(tagHeader.type)) {
-                if (this.shapeParsers) {
+                if (this.shapeParsers && this.shapeTranslator) {
                     try {
+                        // Parse shape using Flash-JS ShapeParsers
                         const parsedShape = this.shapeParsers.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
+                        
                         if (parsedShape && parsedShape.data && parsedShape.data.shapeId !== undefined) {
-                            this.processShapeForEarClippingRendering(parsedShape.data);
+                            // Translate to WebGL-ready geometry using ShapeTranslator
+                            const translatedGeometry = this.shapeTranslator.translateShape(parsedShape.data);
+                            
+                            // Store translated geometry for rendering
+                            this.shapes.set(parsedShape.data.shapeId, translatedGeometry);
                             this.shapeIdMap.set(parsedShape.data.shapeId, true);
+                            
+                            this.logToTerminal(`Shape ${parsedShape.data.shapeId} translated: ${translatedGeometry.triangleCount} triangles`);
                         }
                     } catch (error) {
-                        this.logToTerminal(`Error parsing shape tag ${tagHeader.type}: ${error.message}`);
+                        this.logToTerminal(`Error processing shape tag ${tagHeader.type}: ${error.message}`);
                     }
                 }
             }
             
-            // Process display list tags
+            // Process display list tags using Flash-JS DisplayParsers
             if ([4, 26, 70].includes(tagHeader.type)) {
                 if (this.displayParsers) {
                     try {
@@ -373,7 +380,7 @@ class WebGLFlashRenderer {
             tagIndex++;
         }
         
-        this.logToTerminal(`Processed ${tagIndex} tags for rendering`);
+        this.logToTerminal(`Processed ${tagIndex} tags with ShapeTranslator`);
     }
 
     parseTagHeader(data, offset) {
@@ -381,11 +388,9 @@ class WebGLFlashRenderer {
             return null;
         }
         
-        // Read first 2 bytes
         const byte1 = data[offset];
         const byte2 = data[offset + 1];
         
-        // Extract tag type (upper 10 bits) and length (lower 6 bits)
         const tagAndLength = (byte2 << 8) | byte1;
         const tagType = (tagAndLength >> 6) & 0x3FF;
         const shortLength = tagAndLength & 0x3F;
@@ -393,7 +398,6 @@ class WebGLFlashRenderer {
         let length, headerSize;
         
         if (shortLength === 0x3F) {
-            // Long format: read 4 more bytes for length
             if (offset + 6 > data.length) {
                 return null;
             }
@@ -404,7 +408,6 @@ class WebGLFlashRenderer {
                      (data[offset + 5] << 24);
             headerSize = 6;
         } else {
-            // Short format
             length = shortLength;
             headerSize = 2;
         }
@@ -414,555 +417,6 @@ class WebGLFlashRenderer {
             length: length,
             headerSize: headerSize
         };
-    }
-
-    // NEW: Enhanced shape tessellation with ear-clipping
-    processShapeForEarClippingRendering(shapeData) {
-        this.logToTerminal(`=== EAR-CLIPPING TESSELLATION SHAPE ${shapeData.shapeId} ===`);
-        
-        try {
-            // Reset pen position and style state for each shape
-            this.currentPenX = 0;
-            this.currentPenY = 0;
-            this.currentFillStyle0 = 0;
-            this.currentFillStyle1 = 0;
-            this.currentLineStyle = 0;
-            
-            // Extract shape data from Flash-JS ShapeParsers
-            const bounds = this.extractShapeBounds(shapeData);
-            const fillStyles = shapeData.fillStyles || { styles: [] };
-            const lineStyles = shapeData.lineStyles || { styles: [] };
-            const shapeRecords = shapeData.shapeRecords || { records: [] };
-            
-            this.logToTerminal(`Shape ${shapeData.shapeId}: ${shapeRecords.records.length} records, ${fillStyles.styles.length} fills, ${lineStyles.styles.length} lines`);
-            
-            // Build path segments from shape records
-            const pathSegments = this.buildPathSegmentsFromShapeRecords(shapeRecords.records);
-            
-            // Tessellate paths into triangles using ear-clipping
-            const tessellatedTriangles = this.tessellatePathsWithEarClipping(pathSegments, fillStyles.styles, bounds);
-            
-            // Create renderable geometry
-            const renderableShape = this.createRenderableShapeFromTriangles(tessellatedTriangles, shapeData.shapeId);
-            
-            // Store the tessellated shape
-            this.shapes.set(shapeData.shapeId, renderableShape);
-            
-            this.logToTerminal(`Shape ${shapeData.shapeId} ear-clipped: ${renderableShape.vertexCount} vertices, ${renderableShape.triangleCount} triangles`);
-            
-        } catch (error) {
-            this.logToTerminal(`Error ear-clipping shape ${shapeData.shapeId}: ${error.message}`);
-            
-            // Fallback to bounding box rectangle
-            this.processShapeForFallbackRendering(shapeData);
-        }
-    }
-
-    // NEW: Build path segments from Flash shape records
-    buildPathSegmentsFromShapeRecords(shapeRecords) {
-        const pathSegments = [];
-        let currentPath = null;
-        
-        this.logToTerminal(`Building paths from ${shapeRecords.length} shape records`);
-        
-        for (let i = 0; i < shapeRecords.length && i < 500; i++) { // Limit for performance
-            const record = shapeRecords[i];
-            
-            if (record.type === 'style_change') {
-                // Handle style changes and move operations
-                if (record.flags.moveTo) {
-                    // Convert twips to pixels
-                    this.currentPenX = (record.moveToX || 0) / 20;
-                    this.currentPenY = (record.moveToY || 0) / 20;
-                    
-                    // Start new path
-                    if (currentPath && currentPath.points.length > 2) {
-                        pathSegments.push(currentPath);
-                    }
-                    
-                    currentPath = {
-                        points: [{ x: this.currentPenX, y: this.currentPenY }],
-                        fillStyle0: record.fillStyle0 || this.currentFillStyle0,
-                        fillStyle1: record.fillStyle1 || this.currentFillStyle1,
-                        lineStyle: record.lineStyle || this.currentLineStyle,
-                        closed: false
-                    };
-                }
-                
-                // Update current styles
-                if (record.fillStyle0 !== undefined) this.currentFillStyle0 = record.fillStyle0;
-                if (record.fillStyle1 !== undefined) this.currentFillStyle1 = record.fillStyle1;
-                if (record.lineStyle !== undefined) this.currentLineStyle = record.lineStyle;
-                
-            } else if (record.type === 'straight_edge') {
-                // Add straight line edge
-                if (!currentPath) {
-                    currentPath = {
-                        points: [{ x: this.currentPenX, y: this.currentPenY }],
-                        fillStyle0: this.currentFillStyle0,
-                        fillStyle1: this.currentFillStyle1,
-                        lineStyle: this.currentLineStyle,
-                        closed: false
-                    };
-                }
-                
-                const deltaX = (record.deltaX || 0) / 20;
-                const deltaY = (record.deltaY || 0) / 20;
-                this.currentPenX += deltaX;
-                this.currentPenY += deltaY;
-                
-                currentPath.points.push({ x: this.currentPenX, y: this.currentPenY });
-                
-            } else if (record.type === 'curved_edge') {
-                // Add curved edge (subdivided into line segments)
-                if (!currentPath) {
-                    currentPath = {
-                        points: [{ x: this.currentPenX, y: this.currentPenY }],
-                        fillStyle0: this.currentFillStyle0,
-                        fillStyle1: this.currentFillStyle1,
-                        lineStyle: this.currentLineStyle,
-                        closed: false
-                    };
-                }
-                
-                // Convert control and anchor deltas from twips to pixels
-                const controlDeltaX = (record.controlDeltaX || 0) / 20;
-                const controlDeltaY = (record.controlDeltaY || 0) / 20;
-                const anchorDeltaX = (record.anchorDeltaX || 0) / 20;
-                const anchorDeltaY = (record.anchorDeltaY || 0) / 20;
-                
-                const controlX = this.currentPenX + controlDeltaX;
-                const controlY = this.currentPenY + controlDeltaY;
-                const endX = controlX + anchorDeltaX;
-                const endY = controlY + anchorDeltaY;
-                
-                // Subdivide curve into points
-                const curvePoints = this.subdivideCurveToPoints(
-                    this.currentPenX, this.currentPenY,
-                    controlX, controlY,
-                    endX, endY,
-                    6 // subdivision steps for smoother curves
-                );
-                
-                currentPath.points.push(...curvePoints);
-                
-                this.currentPenX = endX;
-                this.currentPenY = endY;
-                
-            } else if (record.type === 'end') {
-                break;
-            }
-        }
-        
-        // Add final path
-        if (currentPath && currentPath.points.length > 2) {
-            // Check if path should be closed (first and last points are close)
-            const firstPoint = currentPath.points[0];
-            const lastPoint = currentPath.points[currentPath.points.length - 1];
-            const distance = Math.sqrt(
-                Math.pow(lastPoint.x - firstPoint.x, 2) + 
-                Math.pow(lastPoint.y - firstPoint.y, 2)
-            );
-            
-            if (distance < 2.0) { // Close threshold in pixels
-                currentPath.closed = true;
-                currentPath.points.pop(); // Remove duplicate last point
-            }
-            
-            pathSegments.push(currentPath);
-        }
-        
-        this.logToTerminal(`Built ${pathSegments.length} path segments`);
-        return pathSegments;
-    }
-
-    // NEW: Subdivide Bezier curve to points
-    subdivideCurveToPoints(x0, y0, x1, y1, x2, y2, steps) {
-        const points = [];
-        
-        for (let i = 1; i <= steps; i++) {
-            const t = i / steps;
-            
-            // Quadratic Bezier curve evaluation
-            const x = (1 - t) * (1 - t) * x0 + 2 * (1 - t) * t * x1 + t * t * x2;
-            const y = (1 - t) * (1 - t) * y0 + 2 * (1 - t) * t * y1 + t * t * y2;
-            
-            points.push({ x, y });
-        }
-        
-        return points;
-    }
-
-    // NEW: Tessellate paths using ear-clipping algorithm
-    tessellatePathsWithEarClipping(pathSegments, fillStyles, bounds) {
-        const triangles = [];
-        
-        this.logToTerminal(`Ear-clipping tessellation of ${pathSegments.length} paths`);
-        
-        for (let pathIndex = 0; pathIndex < pathSegments.length && pathIndex < 50; pathIndex++) {
-            const path = pathSegments[pathIndex];
-            
-            if (path.points.length < 3) {
-                // Need at least 3 points to form a triangle
-                continue;
-            }
-            
-            // Extract fill color
-            const fillColor = this.getFillColorFromStyle(path.fillStyle0 || path.fillStyle1, fillStyles);
-            
-            // Use ear-clipping triangulation
-            const pathTriangles = this.triangulatePolygonWithEarClipping(path.points, fillColor);
-            triangles.push(...pathTriangles);
-        }
-        
-        // If no triangles generated, create a fallback triangle from bounds
-        if (triangles.length === 0) {
-            const fallbackColor = this.getFallbackColor(fillStyles);
-            const fallbackTriangles = this.createFallbackTrianglesFromBounds(bounds, fallbackColor);
-            triangles.push(...fallbackTriangles);
-        }
-        
-        this.logToTerminal(`Ear-clipping generated ${triangles.length} triangles`);
-        return triangles;
-    }
-
-    // NEW: Ear-clipping triangulation algorithm
-    triangulatePolygonWithEarClipping(points, fillColor) {
-        if (points.length < 3) return [];
-        
-        // Make a copy of points to avoid modifying original
-        const vertices = points.slice();
-        const triangles = [];
-        
-        // Remove duplicate consecutive points
-        for (let i = vertices.length - 1; i >= 1; i--) {
-            const curr = vertices[i];
-            const prev = vertices[i - 1];
-            const distance = Math.sqrt(
-                Math.pow(curr.x - prev.x, 2) + 
-                Math.pow(curr.y - prev.y, 2)
-            );
-            if (distance < 0.1) { // Very close points
-                vertices.splice(i, 1);
-            }
-        }
-        
-        if (vertices.length < 3) return [];
-        
-        // Ensure counter-clockwise winding
-        if (!this.isCounterClockwise(vertices)) {
-            vertices.reverse();
-        }
-        
-        // Ear clipping main loop
-        let attempts = 0;
-        while (vertices.length > 3 && attempts < vertices.length * 2) {
-            attempts++;
-            let earFound = false;
-            
-            for (let i = 0; i < vertices.length; i++) {
-                const prevIndex = (i - 1 + vertices.length) % vertices.length;
-                const currIndex = i;
-                const nextIndex = (i + 1) % vertices.length;
-                
-                const prev = vertices[prevIndex];
-                const curr = vertices[currIndex];
-                const next = vertices[nextIndex];
-                
-                // Check if this vertex forms an ear
-                if (this.isEar(vertices, prevIndex, currIndex, nextIndex)) {
-                    // Create triangle
-                    triangles.push({
-                        vertices: [
-                            prev.x, prev.y,
-                            curr.x, curr.y,
-                            next.x, next.y
-                        ],
-                        color: fillColor
-                    });
-                    
-                    // Remove the ear vertex
-                    vertices.splice(currIndex, 1);
-                    earFound = true;
-                    break;
-                }
-            }
-            
-            if (!earFound) {
-                // If no ear found, something went wrong, break to avoid infinite loop
-                this.logToTerminal(`Ear-clipping failed to find ear, breaking with ${vertices.length} vertices remaining`);
-                break;
-            }
-        }
-        
-        // Add the final triangle
-        if (vertices.length === 3) {
-            triangles.push({
-                vertices: [
-                    vertices[0].x, vertices[0].y,
-                    vertices[1].x, vertices[1].y,
-                    vertices[2].x, vertices[2].y
-                ],
-                color: fillColor
-            });
-        }
-        
-        return triangles;
-    }
-
-    // NEW: Check if polygon is counter-clockwise
-    isCounterClockwise(vertices) {
-        let sum = 0;
-        for (let i = 0; i < vertices.length; i++) {
-            const curr = vertices[i];
-            const next = vertices[(i + 1) % vertices.length];
-            sum += (next.x - curr.x) * (next.y + curr.y);
-        }
-        return sum < 0;
-    }
-
-    // NEW: Check if vertex forms an ear
-    isEar(vertices, prevIndex, currIndex, nextIndex) {
-        const prev = vertices[prevIndex];
-        const curr = vertices[currIndex];
-        const next = vertices[nextIndex];
-        
-        // Check if angle is convex
-        if (!this.isConvex(prev, curr, next)) {
-            return false;
-        }
-        
-        // Check if any other vertex is inside this triangle
-        for (let i = 0; i < vertices.length; i++) {
-            if (i === prevIndex || i === currIndex || i === nextIndex) {
-                continue;
-            }
-            
-            if (this.pointInTriangle(vertices[i], prev, curr, next)) {
-                return false;
-            }
-        }
-        
-        return true;
-    }
-
-    // NEW: Check if angle is convex
-    isConvex(a, b, c) {
-        const cross = (c.x - a.x) * (b.y - a.y) - (c.y - a.y) * (b.x - a.x);
-        return cross > 0;
-    }
-
-    // NEW: Check if point is inside triangle
-    pointInTriangle(p, a, b, c) {
-        const area = Math.abs((b.x - a.x) * (c.y - a.y) - (c.x - a.x) * (b.y - a.y));
-        const area1 = Math.abs((a.x - p.x) * (b.y - p.y) - (b.x - p.x) * (a.y - p.y));
-        const area2 = Math.abs((b.x - p.x) * (c.y - p.y) - (c.x - p.x) * (b.y - p.y));
-        const area3 = Math.abs((c.x - p.x) * (a.y - p.y) - (a.x - p.x) * (c.y - p.y));
-        
-        return Math.abs(area - (area1 + area2 + area3)) < 0.1;
-    }
-
-    // NEW: Get fill color from style
-    getFillColorFromStyle(fillStyleIndex, fillStyles) {
-        if (fillStyleIndex > 0 && fillStyleIndex <= fillStyles.length) {
-            const fillStyle = fillStyles[fillStyleIndex - 1]; // 1-based indexing
-            
-            if (fillStyle.type === 'solid' && fillStyle.color) {
-                return {
-                    r: (fillStyle.color.red || 128) / 255,
-                    g: (fillStyle.color.green || 128) / 255,
-                    b: (fillStyle.color.blue || 255) / 255,
-                    a: Math.max(0.3, (fillStyle.color.alpha !== undefined ? fillStyle.color.alpha : 255) / 255)
-                };
-            }
-        }
-        
-        // Default bright color
-        return { r: 0.8, g: 0.4, b: 0.9, a: 0.8 };
-    }
-
-    // NEW: Get fallback color
-    getFallbackColor(fillStyles) {
-        if (fillStyles.length > 0) {
-            return this.getFillColorFromStyle(1, fillStyles);
-        }
-        return { r: 0.7, g: 0.3, b: 0.8, a: 0.7 };
-    }
-
-    // NEW: Create fallback triangles from bounds
-    createFallbackTrianglesFromBounds(bounds, fillColor) {
-        // Convert twips to pixels
-        let x1 = (bounds.xMin || 0) / 20;
-        let y1 = (bounds.yMin || 0) / 20;
-        let x2 = (bounds.xMax || 2000) / 20;
-        let y2 = (bounds.yMax || 1500) / 20;
-        
-        // Ensure minimum size
-        if (x2 - x1 < 10) { x2 = x1 + 40; }
-        if (y2 - y1 < 10) { y2 = y1 + 30; }
-        
-        return [
-            {
-                vertices: [x1, y1, x2, y1, x1, y2],
-                color: fillColor
-            },
-            {
-                vertices: [x2, y1, x2, y2, x1, y2],
-                color: fillColor
-            }
-        ];
-    }
-
-    // NEW: Create renderable shape from triangles
-    createRenderableShapeFromTriangles(triangles, shapeId) {
-        const vertices = [];
-        const colors = [];
-        
-        for (const triangle of triangles) {
-            // Add triangle vertices (3 points = 6 coordinates)
-            vertices.push(...triangle.vertices);
-            
-            // Add triangle colors (3 points × 4 components each)
-            for (let i = 0; i < 3; i++) {
-                colors.push(triangle.color.r, triangle.color.g, triangle.color.b, triangle.color.a);
-            }
-        }
-        
-        return {
-            vertices: new Float32Array(vertices),
-            colors: new Float32Array(colors),
-            primitiveType: this.gl.TRIANGLES,
-            vertexCount: triangles.length * 3,
-            triangleCount: triangles.length,
-            bounds: null, // Will be calculated if needed
-            tessellated: true,
-            method: 'ear-clipping'
-        };
-    }
-
-    // Fallback method for shapes that can't be tessellated
-    processShapeForFallbackRendering(shapeData) {
-        this.logToTerminal(`Using fallback rendering for shape ${shapeData.shapeId}`);
-        
-        // Extract shape bounds and create renderable geometry
-        const bounds = this.extractShapeBounds(shapeData);
-        const color = this.extractShapeColor(shapeData);
-        
-        // Convert bounds from twips to pixels and ensure visibility
-        let x1 = (bounds.xMin || 0) / 20;
-        let y1 = (bounds.yMin || 0) / 20;
-        let x2 = (bounds.xMax || 2000) / 20;
-        let y2 = (bounds.yMax || 2000) / 20;
-        
-        // Ensure we have a visible rectangle within the stage
-        if (x2 <= x1 || Math.abs(x2 - x1) < 5) {
-            x1 = 50 + (shapeData.shapeId * 15) % (this.stageWidth - 150);
-            x2 = x1 + 60;
-        }
-        if (y2 <= y1 || Math.abs(y2 - y1) < 5) {
-            y1 = 50 + (shapeData.shapeId * 15) % (this.stageHeight - 150);
-            y2 = y1 + 40;
-        }
-        
-        // Clamp to stage bounds
-        x1 = Math.max(10, Math.min(x1, this.stageWidth - 70));
-        y1 = Math.max(10, Math.min(y1, this.stageHeight - 50));
-        x2 = Math.max(x1 + 60, Math.min(x2, this.stageWidth - 10));
-        y2 = Math.max(y1 + 40, Math.min(y2, this.stageHeight - 10));
-        
-        // Create two triangles for rectangle
-        const vertices = new Float32Array([
-            x1, y1,   // Triangle 1: Bottom left
-            x2, y1,   // Bottom right
-            x1, y2,   // Top left
-            
-            x2, y1,   // Triangle 2: Bottom right
-            x2, y2,   // Top right
-            x1, y2    // Top left
-        ]);
-        
-        const colors = new Float32Array([
-            color.r, color.g, color.b, color.a,
-            color.r, color.g, color.b, color.a,
-            color.r, color.g, color.b, color.a,
-            color.r, color.g, color.b, color.a,
-            color.r, color.g, color.b, color.a,
-            color.r, color.g, color.b, color.a
-        ]);
-        
-        const renderableShape = {
-            vertices: vertices,
-            colors: colors,
-            bounds: bounds,
-            primitiveType: this.gl.TRIANGLES,
-            vertexCount: 6,
-            triangleCount: 2,
-            tessellated: false,
-            method: 'fallback'
-        };
-        
-        this.shapes.set(shapeData.shapeId, renderableShape);
-        
-        this.logToTerminal(`Fallback shape ${shapeData.shapeId} created: (${x1.toFixed(1)}, ${y1.toFixed(1)}) to (${x2.toFixed(1)}, ${y2.toFixed(1)})`);
-    }
-
-    extractShapeBounds(shapeData) {
-        // Extract bounds from the Flash-JS ShapeParsers data structure
-        if (shapeData.bounds) {
-            return {
-                xMin: shapeData.bounds.xMin || 0,
-                yMin: shapeData.bounds.yMin || 0,
-                xMax: shapeData.bounds.xMax || 2000,
-                yMax: shapeData.bounds.yMax || 1500
-            };
-        }
-        
-        // Default bounds for visibility
-        return { xMin: 100, yMin: 100, xMax: 2000, yMax: 1500 };
-    }
-
-    extractShapeColor(shapeData) {
-        // Try to extract color from fill styles in the Flash-JS data structure
-        if (shapeData.fillStyles && shapeData.fillStyles.styles && shapeData.fillStyles.styles.length > 0) {
-            const firstFill = shapeData.fillStyles.styles[0];
-            if (firstFill.type === 'solid' && firstFill.color) {
-                return {
-                    r: (firstFill.color.red || 128) / 255,
-                    g: (firstFill.color.green || 128) / 255,
-                    b: (firstFill.color.blue || 255) / 255,
-                    a: Math.max(0.3, (firstFill.color.alpha !== undefined ? firstFill.color.alpha : 255) / 255) // Minimum 30% alpha for visibility
-                };
-            }
-        }
-        
-        // Generate a bright, visible color based on shape ID
-        const hue = (shapeData.shapeId * 60) % 360;
-        return this.hslToRgb(hue / 360, 0.8, 0.6);
-    }
-
-    hslToRgb(h, s, l) {
-        let r, g, b;
-        
-        if (s === 0) {
-            r = g = b = l;
-        } else {
-            const hue2rgb = (p, q, t) => {
-                if (t < 0) t += 1;
-                if (t > 1) t -= 1;
-                if (t < 1/6) return p + (q - p) * 6 * t;
-                if (t < 1/2) return q;
-                if (t < 2/3) return p + (q - p) * (2/3 - t) * 6;
-                return p;
-            };
-            
-            const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
-            const p = 2 * l - q;
-            r = hue2rgb(p, q, h + 1/3);
-            g = hue2rgb(p, q, h);
-            b = hue2rgb(p, q, h - 1/3);
-        }
-        
-        return { r, g, b, a: 1.0 };
     }
 
     processDisplayObjectForRendering(displayData) {
@@ -1014,28 +468,28 @@ class WebGLFlashRenderer {
         const availableShapeIds = Array.from(this.shapes.keys());
         const referencedCharacterIds = Array.from(this.displayObjectCharacterIds);
         
-        this.logToTerminal(`Available shape IDs: [${availableShapeIds.slice(0, 10).join(', ')}${availableShapeIds.length > 10 ? '...' : ''}] (${availableShapeIds.length} total)`);
+        this.logToTerminal(`Translated shape IDs: [${availableShapeIds.slice(0, 10).join(', ')}${availableShapeIds.length > 10 ? '...' : ''}] (${availableShapeIds.length} total)`);
         this.logToTerminal(`Referenced character IDs: [${referencedCharacterIds.join(', ')}] (${referencedCharacterIds.length} total)`);
         
         if (referencedCharacterIds.length === 0) {
-            this.logToTerminal('NO DISPLAY OBJECTS FOUND - Will create display objects for all shapes');
+            this.logToTerminal('NO DISPLAY OBJECTS FOUND - Will create display objects for all translated shapes');
         }
     }
 
     createDisplayObjectsForAllShapes() {
-        this.logToTerminal('=== CREATING DISPLAY OBJECTS FOR ALL SHAPES ===');
+        this.logToTerminal('=== CREATING DISPLAY OBJECTS FOR ALL TRANSLATED SHAPES ===');
         
-        const availableShapeIds = Array.from(this.shapes.keys()).filter(id => id !== 999); // Exclude test shape
+        const availableShapeIds = Array.from(this.shapes.keys());
         let createdCount = 0;
         let depth = 1;
         
-        // Create a grid layout for all shapes
+        // Create a grid layout for all translated shapes
         const cols = Math.ceil(Math.sqrt(availableShapeIds.length));
         const rows = Math.ceil(availableShapeIds.length / cols);
         const cellWidth = this.stageWidth / cols;
         const cellHeight = this.stageHeight / rows;
         
-        this.logToTerminal(`Creating ${availableShapeIds.length} display objects in ${cols}x${rows} grid`);
+        this.logToTerminal(`Creating ${availableShapeIds.length} display objects for translated shapes in ${cols}x${rows} grid`);
         
         for (let i = 0; i < availableShapeIds.length; i++) {
             const shapeId = availableShapeIds[i];
@@ -1060,13 +514,13 @@ class WebGLFlashRenderer {
             };
             
             this.displayList.set(depth, displayObject);
-            this.logToTerminal(`Created display object for shape ${shapeId} at depth ${depth}, position (${x.toFixed(1)}, ${y.toFixed(1)})`);
+            this.logToTerminal(`Created display object for translated shape ${shapeId} at depth ${depth}, position (${x.toFixed(1)}, ${y.toFixed(1)})`);
             
             depth++;
             createdCount++;
         }
         
-        this.logToTerminal(`Created ${createdCount} display objects for all shapes`);
+        this.logToTerminal(`Created ${createdCount} display objects for translated shapes`);
     }
 
     setupViewportFromSignature(signatureData) {
@@ -1095,20 +549,14 @@ class WebGLFlashRenderer {
     }
 
     debugLogAllObjects() {
-        this.logToTerminal('=== DEBUG: ALL OBJECTS ===');
-        this.logToTerminal(`Shapes in map: ${this.shapes.size}`);
+        this.logToTerminal('=== DEBUG: ALL TRANSLATED OBJECTS ===');
+        this.logToTerminal(`Translated shapes in map: ${this.shapes.size}`);
         
-        // Log tessellation stats
-        let earClippedCount = 0;
-        let fallbackCount = 0;
-        let totalTriangles = 0;
-        this.shapes.forEach(shape => {
-            if (shape.method === 'ear-clipping') earClippedCount++;
-            if (shape.method === 'fallback') fallbackCount++;
-            totalTriangles += shape.triangleCount || 0;
-        });
-        
-        this.logToTerminal(`Ear-clipped shapes: ${earClippedCount}/${this.shapes.size}, Fallback: ${fallbackCount}, Total triangles: ${totalTriangles}`);
+        // Log translation statistics
+        if (this.shapeTranslator) {
+            const stats = this.shapeTranslator.getTranslationStats();
+            this.logToTerminal(`Translation stats: ${stats.totalTranslations} shapes translated using ${stats.method}`);
+        }
         
         this.logToTerminal(`Display objects in map: ${this.displayList.size}`);
         const displayObjects = Array.from(this.displayList.entries()).slice(0, 5);
@@ -1120,7 +568,7 @@ class WebGLFlashRenderer {
         }
     }
 
-    // Enhanced render loop with actual shape rendering
+    // Enhanced render loop with translated geometry
     render() {
         const currentTime = performance.now();
         const deltaTime = currentTime - this.lastFrameTime;
@@ -1132,8 +580,8 @@ class WebGLFlashRenderer {
         this.frameCount++;
         if (this.frameCount % 60 === 0) {
             this.fps = Math.round(1000 / deltaTime);
-            this.logToTerminal(`=== RENDERING STATUS ===`);
-            this.logToTerminal(`FPS: ${this.fps}, Shapes: ${this.shapes.size}, Display objects: ${this.displayList.size}`);
+            this.logToTerminal(`=== RENDERING TRANSLATED SHAPES ===`);
+            this.logToTerminal(`FPS: ${this.fps}, Translated shapes: ${this.shapes.size}, Display objects: ${this.displayList.size}`);
         }
 
         // Clear canvas with dark gray background for contrast
@@ -1148,8 +596,8 @@ class WebGLFlashRenderer {
         this.gl.uniformMatrix4fv(this.uniforms.projectionMatrix, false, this.projectionMatrix);
         this.gl.uniformMatrix4fv(this.uniforms.viewMatrix, false, this.viewMatrix);
 
-        // Render display list in depth order
-        this.renderDisplayList();
+        // Render display list with translated geometry
+        this.renderTranslatedDisplayList();
 
         // Continue rendering loop if active
         if (this.renderingActive) {
@@ -1157,7 +605,7 @@ class WebGLFlashRenderer {
         }
     }
 
-    renderDisplayList() {
+    renderTranslatedDisplayList() {
         // Sort display objects by depth
         const sortedDisplayObjects = Array.from(this.displayList.entries())
             .sort(([depthA], [depthB]) => depthA - depthB);
@@ -1166,21 +614,21 @@ class WebGLFlashRenderer {
         
         for (const [depth, displayObject] of sortedDisplayObjects) {
             if (displayObject.visible && displayObject.characterId !== undefined) {
-                const wasRendered = this.renderDisplayObject(displayObject, depth);
+                const wasRendered = this.renderTranslatedDisplayObject(displayObject, depth);
                 if (wasRendered) renderedCount++;
             }
         }
         
         if (this.frameCount % 120 === 0) {
-            this.logToTerminal(`Successfully rendered ${renderedCount} objects`);
+            this.logToTerminal(`Successfully rendered ${renderedCount} translated objects`);
         }
     }
 
-    renderDisplayObject(displayObject, depth) {
-        const shape = this.shapes.get(displayObject.characterId);
-        if (!shape) {
+    renderTranslatedDisplayObject(displayObject, depth) {
+        const translatedShape = this.shapes.get(displayObject.characterId);
+        if (!translatedShape) {
             if (this.frameCount % 300 === 0) {
-                this.logToTerminal(`WARNING: No shape found for character ID ${displayObject.characterId} at depth ${depth}`);
+                this.logToTerminal(`WARNING: No translated shape found for character ID ${displayObject.characterId} at depth ${depth}`);
             }
             return false;
         }
@@ -1188,20 +636,20 @@ class WebGLFlashRenderer {
         // Set model matrix for this display object
         this.gl.uniformMatrix4fv(this.uniforms.modelMatrix, false, displayObject.matrix);
         
-        // Bind vertex data
+        // Bind translated vertex data
         this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.buffers.vertex);
-        this.gl.bufferData(this.gl.ARRAY_BUFFER, shape.vertices, this.gl.STATIC_DRAW);
+        this.gl.bufferData(this.gl.ARRAY_BUFFER, translatedShape.vertices, this.gl.STATIC_DRAW);
         this.gl.enableVertexAttribArray(this.attributes.position);
         this.gl.vertexAttribPointer(this.attributes.position, 2, this.gl.FLOAT, false, 0, 0);
         
-        // Bind color data
+        // Bind translated color data
         this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.buffers.color);
-        this.gl.bufferData(this.gl.ARRAY_BUFFER, shape.colors, this.gl.STATIC_DRAW);
+        this.gl.bufferData(this.gl.ARRAY_BUFFER, translatedShape.colors, this.gl.STATIC_DRAW);
         this.gl.enableVertexAttribArray(this.attributes.color);
         this.gl.vertexAttribPointer(this.attributes.color, 4, this.gl.FLOAT, false, 0, 0);
         
-        // Draw the shape
-        this.gl.drawArrays(shape.primitiveType, 0, shape.vertexCount);
+        // Draw the translated shape
+        this.gl.drawArrays(this.gl.TRIANGLES, 0, translatedShape.vertexCount);
         
         return true;
     }
@@ -1209,7 +657,7 @@ class WebGLFlashRenderer {
     startRendering() {
         this.renderingActive = true;
         this.render();
-        this.logToTerminal('=== WEBGL RENDERING STARTED WITH EAR-CLIPPING TESSELLATION ===');
+        this.logToTerminal('=== WEBGL RENDERING STARTED WITH SHAPE TRANSLATOR ===');
     }
 
     stopRendering() {
@@ -1231,7 +679,7 @@ class WebGLFlashRenderer {
         
         console.log(logMessage);
         
-        // Use same terminal output method as Parse.js in Flash-JS repository
+        // Use Flash-JS Parse.js webpage terminal output system
         const terminal = document.getElementById('terminalOutput');
         if (terminal) {
             terminal.textContent += '\n' + logMessage;
@@ -1244,7 +692,6 @@ class WebGLFlashRenderer {
         this.renderingActive = false;
         
         if (this.gl) {
-            // Clean up WebGL resources
             if (this.program) {
                 this.gl.deleteProgram(this.program);
             }
