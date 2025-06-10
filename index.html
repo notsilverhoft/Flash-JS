@@ -429,7 +429,7 @@
 
   <!-- WebGL Renderer Section -->
   <div class="webgl-header">
-    <h3 class="webgl-title">WebGL Flash Renderer with Shape Translator</h3>
+    <h3 class="webgl-title">WebGL Flash Renderer with ShapeTranslator and DisplayTranslator</h3>
   </div>
   <div class="webgl-container">
     <canvas id="webglCanvas" class="webgl-canvas" width="550" height="400"></canvas>
@@ -439,7 +439,7 @@
       <button class="button clear-button" id="clearRenderButton">Clear</button>
     </div>
     <div class="webgl-info" id="webglInfo">
-      Ready to render Flash content with ShapeTranslator integration. Upload a SWF file to begin.
+      Ready to render Flash content with ShapeTranslator and DisplayTranslator integration. Upload a SWF file to begin.
     </div>
   </div>
 
@@ -455,7 +455,7 @@
     <h3 class="terminal-title">Display Output (WebGL Renderer)</h3>
     <button class="copy-button" id="copyDisplayButton">Copy</button>
   </div>
-  <div class="terminal" id="displayOutput">WebGL Flash Renderer with ShapeTranslator initialized. Waiting for SWF file to begin rendering...</div>
+  <div class="terminal" id="displayOutput">WebGL Flash Renderer with ShapeTranslator and DisplayTranslator initialized. Waiting for SWF file to begin rendering...</div>
 
   <script>
     const terminal = document.getElementById('terminalOutput');
@@ -538,12 +538,13 @@
 
     // Flash-JS Shape Translation integration
     window.translatedShapeData = new Map(); // Store translated shapes from TagParse.js
+    window.translatedDisplayData = new Map(); // Store translated display objects from TagParse.js
 
     // Override console.log for WebGL messages to display terminal
     const originalConsoleLog = console.log;
     console.log = function(...args) {
       const message = args.join(' ');
-      if (message.includes('[WebGL]') || message.includes('[ShapeTranslator]')) {
+      if (message.includes('[WebGL]') || message.includes('[ShapeTranslator]') || message.includes('[DisplayTranslator]')) {
         // Add to display terminal for rendering messages
         const timestamp = new Date().toISOString().substring(11, 19);
         displayTerminal.textContent += '\n' + message;
@@ -719,7 +720,7 @@
       }
     });
 
-    // WebGL Renderer button functionality with ShapeTranslator integration
+    // WebGL Renderer button functionality with ShapeTranslator and DisplayTranslator integration
     startRenderButton.addEventListener('click', function() {
       if (!currentArrayBuffer) {
         webglInfo.textContent = 'Please upload a SWF file first';
@@ -728,7 +729,7 @@
 
       try {
         // Clear display terminal for new render session
-        displayTerminal.textContent = 'Starting WebGL Flash Renderer with ShapeTranslator integration...';
+        displayTerminal.textContent = 'Starting WebGL Flash Renderer with ShapeTranslator and DisplayTranslator integration...';
         
         // Create WebGL renderer if it doesn't exist
         if (!currentRenderer) {
@@ -739,6 +740,12 @@
         if (window.translatedShapeData && window.translatedShapeData.size > 0) {
           displayTerminal.textContent += '\nUsing pre-translated shapes from TagParse.js ShapeTranslator...';
           currentRenderer.loadTranslatedShapeData(window.translatedShapeData);
+        }
+        
+        // Load translated display data from TagParse.js if available
+        if (window.translatedDisplayData && window.translatedDisplayData.size > 0) {
+          displayTerminal.textContent += '\nUsing pre-translated display objects from TagParse.js DisplayTranslator...';
+          currentRenderer.loadTranslatedDisplayData(window.translatedDisplayData);
         } else {
           // Fallback to direct SWF parsing if no translated data available
           displayTerminal.textContent += '\nNo translated data available, falling back to direct SWF parsing...';
@@ -748,7 +755,7 @@
         // Start render loop
         currentRenderer.startRendering();
         
-        webglInfo.textContent = 'WebGL rendering active with ShapeTranslator integration';
+        webglInfo.textContent = 'WebGL rendering active with ShapeTranslator and DisplayTranslator integration';
         
       } catch (error) {
         webglInfo.textContent = `WebGL Error: ${error.message}`;
@@ -772,8 +779,9 @@
         currentRenderer = null;
       }
       
-      // Clear translated shape data
+      // Clear translated shape and display data
       window.translatedShapeData.clear();
+      window.translatedDisplayData.clear();
       
       const ctx = webglCanvas.getContext('2d');
       if (ctx) {
@@ -781,10 +789,10 @@
       }
       
       webglInfo.textContent = 'Renderer cleared';
-      displayTerminal.textContent = 'WebGL Flash Renderer with ShapeTranslator cleared. Ready for new SWF file...';
+      displayTerminal.textContent = 'WebGL Flash Renderer with ShapeTranslator and DisplayTranslator cleared. Ready for new SWF file...';
     });
 
-    // Function to reparse current file with ShapeTranslator integration
+    // Function to reparse current file with ShapeTranslator and DisplayTranslator integration
     function reparseCurrentFile() {
       const fileInput = document.getElementById('SWF-Input');
       if (fileInput.files[0]) {
@@ -792,14 +800,17 @@
         file.arrayBuffer().then(arrayBuffer => {
           // Clear previous translated data
           window.translatedShapeData.clear();
+          window.translatedDisplayData.clear();
           
           const parsedInfo = parseSWFSignature(arrayBuffer);
           const tagInfo = parseSWFTags(arrayBuffer);
           terminal.textContent = parsedInfo + '\n\n' + tagInfo;
           
           // Update display terminal with translation status
-          if (window.translatedShapeData.size > 0) {
-            displayTerminal.textContent += `\nShapeTranslator processed ${window.translatedShapeData.size} shapes for WebGL rendering`;
+          const shapeCount = window.translatedShapeData.size;
+          const displayCount = window.translatedDisplayData.size;
+          if (shapeCount > 0 || displayCount > 0) {
+            displayTerminal.textContent += `\nShapeTranslator processed ${shapeCount} shapes, DisplayTranslator processed ${displayCount} display objects for WebGL rendering`;
             displayTerminal.scrollTop = displayTerminal.scrollHeight;
           }
         });
@@ -826,7 +837,7 @@
       }
 
       terminal.textContent = 'Determined that file is in SWF format...\nReading file...';
-      displayTerminal.textContent = `SWF file "${file.name}" loaded. Ready for WebGL rendering with ShapeTranslator...`;
+      displayTerminal.textContent = `SWF file "${file.name}" loaded. Ready for WebGL rendering with ShapeTranslator and DisplayTranslator...`;
       window.start = true;
 
       try {
@@ -837,15 +848,17 @@
         
         // Clear previous translated data
         window.translatedShapeData.clear();
+        window.translatedDisplayData.clear();
         
         const parsedInfo = parseSWFSignature(arrayBuffer);
         const tagInfo = parseSWFTags(arrayBuffer);
         terminal.textContent = parsedInfo + '\n\n' + tagInfo;
         
-        // Update WebGL info with ShapeTranslator status
+        // Update WebGL info with ShapeTranslator and DisplayTranslator status
         const shapeCount = window.translatedShapeData.size;
-        webglInfo.textContent = `${file.name} loaded. ${shapeCount} shapes translated. Ready for WebGL rendering.`;
-        displayTerminal.textContent += `\nSWF analysis complete. ${shapeCount} shapes processed by ShapeTranslator. File contains ${parsedInfo.match(/Frame Count: (\d+)/)?.[1] || 'unknown'} frames. Ready for WebGL rendering.`;
+        const displayCount = window.translatedDisplayData.size;
+        webglInfo.textContent = `${file.name} loaded. ${shapeCount} shapes translated, ${displayCount} display objects processed. Ready for WebGL rendering.`;
+        displayTerminal.textContent += `\nSWF analysis complete. ${shapeCount} shapes processed by ShapeTranslator, ${displayCount} display objects processed by DisplayTranslator. File contains ${parsedInfo.match(/Frame Count: (\d+)/)?.[1] || 'unknown'} frames. Ready for WebGL rendering.`;
         displayTerminal.scrollTop = displayTerminal.scrollHeight;
       } catch (err) {
         terminal.textContent = 'Error reading SWF file: ' + err.message;
@@ -876,8 +889,9 @@
   <script src="JS/parsers/MorphParsers.js"></script>
   <script src="JS/parsers/ScalingParsers.js"></script>
   
-  <!-- Load ShapeTranslator before TagParse.js -->
+  <!-- Load ShapeTranslator and DisplayTranslator before TagParse.js -->
   <script src="JS/webgl-translators/ShapeTranslator.js"></script>
+  <script src="JS/webgl-translators/DisplayTranslator.js"></script>
   
   <script src="JS/TagParse.js"></script>
   
