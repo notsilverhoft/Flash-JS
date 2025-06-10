@@ -2,8 +2,8 @@
  * WebGL Flash Game Renderer for Flash-JS Repository
  * Integrates with Parse.js webpage terminal output for debugging
  * Optimized for big Flash games performance
- * PHASE 3: Real shape tessellation - converts Flash vector graphics into triangulated geometry
- * ENHANCED: Processes actual shapeRecords from ShapeParsers instead of just bounding boxes
+ * PHASE 4: Proper polygon tessellation using ear-clipping algorithm
+ * ENHANCED: Replaces simple fan triangulation with robust ear-clipping for complex Flash shapes
  */
 
 class WebGLFlashRenderer {
@@ -80,7 +80,7 @@ class WebGLFlashRenderer {
             // Initialize Flash-JS parsers
             this.initializeParsers();
 
-            this.logToTerminal('WebGL Flash Renderer initialized successfully with shape tessellation');
+            this.logToTerminal('WebGL Flash Renderer initialized successfully with ear-clipping tessellation');
             
         } catch (error) {
             this.logToTerminal(`WebGL initialization failed: ${error.message}`);
@@ -92,7 +92,7 @@ class WebGLFlashRenderer {
         try {
             if (typeof ShapeParsers !== 'undefined') {
                 this.shapeParsers = new ShapeParsers();
-                this.logToTerminal('ShapeParsers initialized for WebGL rendering with tessellation');
+                this.logToTerminal('ShapeParsers initialized for WebGL rendering with ear-clipping tessellation');
             } else {
                 this.logToTerminal('ERROR: ShapeParsers not available');
             }
@@ -223,7 +223,7 @@ class WebGLFlashRenderer {
 
     // Direct integration with Flash-JS SWF tag parsing pipeline
     loadFromFlashJSSWFData(arrayBuffer) {
-        this.logToTerminal('=== STARTING FLASH-JS SWF DATA LOADING WITH TESSELLATION ===');
+        this.logToTerminal('=== STARTING FLASH-JS SWF DATA LOADING WITH EAR-CLIPPING TESSELLATION ===');
 
         try {
             // Clear existing data
@@ -318,7 +318,7 @@ class WebGLFlashRenderer {
         let offset = 0;
         let tagIndex = 0;
         
-        this.logToTerminal('=== PARSING TAGS FOR RENDERING WITH TESSELLATION ===');
+        this.logToTerminal('=== PARSING TAGS FOR RENDERING WITH EAR-CLIPPING TESSELLATION ===');
         
         while (offset < tagData.length && tagIndex < 100) {
             const tagHeader = this.parseTagHeader(tagData, offset);
@@ -336,7 +336,7 @@ class WebGLFlashRenderer {
                     try {
                         const parsedShape = this.shapeParsers.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
                         if (parsedShape && parsedShape.data && parsedShape.data.shapeId !== undefined) {
-                            this.processShapeForTessellatedRendering(parsedShape.data);
+                            this.processShapeForEarClippingRendering(parsedShape.data);
                             this.shapeIdMap.set(parsedShape.data.shapeId, true);
                         }
                     } catch (error) {
@@ -416,9 +416,9 @@ class WebGLFlashRenderer {
         };
     }
 
-    // NEW: Real shape tessellation method
-    processShapeForTessellatedRendering(shapeData) {
-        this.logToTerminal(`=== TESSELLATING SHAPE ${shapeData.shapeId} ===`);
+    // NEW: Enhanced shape tessellation with ear-clipping
+    processShapeForEarClippingRendering(shapeData) {
+        this.logToTerminal(`=== EAR-CLIPPING TESSELLATION SHAPE ${shapeData.shapeId} ===`);
         
         try {
             // Reset pen position and style state for each shape
@@ -439,8 +439,8 @@ class WebGLFlashRenderer {
             // Build path segments from shape records
             const pathSegments = this.buildPathSegmentsFromShapeRecords(shapeRecords.records);
             
-            // Tessellate paths into triangles
-            const tessellatedTriangles = this.tessellatePathsToTriangles(pathSegments, fillStyles.styles, bounds);
+            // Tessellate paths into triangles using ear-clipping
+            const tessellatedTriangles = this.tessellatePathsWithEarClipping(pathSegments, fillStyles.styles, bounds);
             
             // Create renderable geometry
             const renderableShape = this.createRenderableShapeFromTriangles(tessellatedTriangles, shapeData.shapeId);
@@ -448,10 +448,10 @@ class WebGLFlashRenderer {
             // Store the tessellated shape
             this.shapes.set(shapeData.shapeId, renderableShape);
             
-            this.logToTerminal(`Shape ${shapeData.shapeId} tessellated: ${renderableShape.vertexCount} vertices, ${renderableShape.triangleCount} triangles`);
+            this.logToTerminal(`Shape ${shapeData.shapeId} ear-clipped: ${renderableShape.vertexCount} vertices, ${renderableShape.triangleCount} triangles`);
             
         } catch (error) {
-            this.logToTerminal(`Error tessellating shape ${shapeData.shapeId}: ${error.message}`);
+            this.logToTerminal(`Error ear-clipping shape ${shapeData.shapeId}: ${error.message}`);
             
             // Fallback to bounding box rectangle
             this.processShapeForFallbackRendering(shapeData);
@@ -476,17 +476,16 @@ class WebGLFlashRenderer {
                     this.currentPenY = (record.moveToY || 0) / 20;
                     
                     // Start new path
-                    if (currentPath && currentPath.edges.length > 0) {
+                    if (currentPath && currentPath.points.length > 2) {
                         pathSegments.push(currentPath);
                     }
                     
                     currentPath = {
-                        startX: this.currentPenX,
-                        startY: this.currentPenY,
-                        edges: [],
+                        points: [{ x: this.currentPenX, y: this.currentPenY }],
                         fillStyle0: record.fillStyle0 || this.currentFillStyle0,
                         fillStyle1: record.fillStyle1 || this.currentFillStyle1,
-                        lineStyle: record.lineStyle || this.currentLineStyle
+                        lineStyle: record.lineStyle || this.currentLineStyle,
+                        closed: false
                     };
                 }
                 
@@ -499,41 +498,30 @@ class WebGLFlashRenderer {
                 // Add straight line edge
                 if (!currentPath) {
                     currentPath = {
-                        startX: this.currentPenX,
-                        startY: this.currentPenY,
-                        edges: [],
+                        points: [{ x: this.currentPenX, y: this.currentPenY }],
                         fillStyle0: this.currentFillStyle0,
                         fillStyle1: this.currentFillStyle1,
-                        lineStyle: this.currentLineStyle
+                        lineStyle: this.currentLineStyle,
+                        closed: false
                     };
                 }
                 
                 const deltaX = (record.deltaX || 0) / 20;
                 const deltaY = (record.deltaY || 0) / 20;
-                const endX = this.currentPenX + deltaX;
-                const endY = this.currentPenY + deltaY;
+                this.currentPenX += deltaX;
+                this.currentPenY += deltaY;
                 
-                currentPath.edges.push({
-                    type: 'line',
-                    startX: this.currentPenX,
-                    startY: this.currentPenY,
-                    endX: endX,
-                    endY: endY
-                });
-                
-                this.currentPenX = endX;
-                this.currentPenY = endY;
+                currentPath.points.push({ x: this.currentPenX, y: this.currentPenY });
                 
             } else if (record.type === 'curved_edge') {
-                // Add curved edge (simplified to line segments)
+                // Add curved edge (subdivided into line segments)
                 if (!currentPath) {
                     currentPath = {
-                        startX: this.currentPenX,
-                        startY: this.currentPenY,
-                        edges: [],
+                        points: [{ x: this.currentPenX, y: this.currentPenY }],
                         fillStyle0: this.currentFillStyle0,
                         fillStyle1: this.currentFillStyle1,
-                        lineStyle: this.currentLineStyle
+                        lineStyle: this.currentLineStyle,
+                        closed: false
                     };
                 }
                 
@@ -548,17 +536,15 @@ class WebGLFlashRenderer {
                 const endX = controlX + anchorDeltaX;
                 const endY = controlY + anchorDeltaY;
                 
-                // Subdivide curve into line segments (simple approach)
-                const curveSegments = this.subdivideCurve(
+                // Subdivide curve into points
+                const curvePoints = this.subdivideCurveToPoints(
                     this.currentPenX, this.currentPenY,
                     controlX, controlY,
                     endX, endY,
-                    4 // subdivision steps
+                    6 // subdivision steps for smoother curves
                 );
                 
-                for (const segment of curveSegments) {
-                    currentPath.edges.push(segment);
-                }
+                currentPath.points.push(...curvePoints);
                 
                 this.currentPenX = endX;
                 this.currentPenY = endY;
@@ -569,7 +555,20 @@ class WebGLFlashRenderer {
         }
         
         // Add final path
-        if (currentPath && currentPath.edges.length > 0) {
+        if (currentPath && currentPath.points.length > 2) {
+            // Check if path should be closed (first and last points are close)
+            const firstPoint = currentPath.points[0];
+            const lastPoint = currentPath.points[currentPath.points.length - 1];
+            const distance = Math.sqrt(
+                Math.pow(lastPoint.x - firstPoint.x, 2) + 
+                Math.pow(lastPoint.y - firstPoint.y, 2)
+            );
+            
+            if (distance < 2.0) { // Close threshold in pixels
+                currentPath.closed = true;
+                currentPath.points.pop(); // Remove duplicate last point
+            }
+            
             pathSegments.push(currentPath);
         }
         
@@ -577,51 +576,42 @@ class WebGLFlashRenderer {
         return pathSegments;
     }
 
-    // NEW: Subdivide Bezier curve into line segments
-    subdivideCurve(x0, y0, x1, y1, x2, y2, steps) {
-        const segments = [];
+    // NEW: Subdivide Bezier curve to points
+    subdivideCurveToPoints(x0, y0, x1, y1, x2, y2, steps) {
+        const points = [];
         
-        for (let i = 0; i < steps; i++) {
-            const t1 = i / steps;
-            const t2 = (i + 1) / steps;
+        for (let i = 1; i <= steps; i++) {
+            const t = i / steps;
             
             // Quadratic Bezier curve evaluation
-            const startX = (1 - t1) * (1 - t1) * x0 + 2 * (1 - t1) * t1 * x1 + t1 * t1 * x2;
-            const startY = (1 - t1) * (1 - t1) * y0 + 2 * (1 - t1) * t1 * y1 + t1 * t1 * y2;
-            const endX = (1 - t2) * (1 - t2) * x0 + 2 * (1 - t2) * t2 * x1 + t2 * t2 * x2;
-            const endY = (1 - t2) * (1 - t2) * y0 + 2 * (1 - t2) * t2 * y1 + t2 * t2 * y2;
+            const x = (1 - t) * (1 - t) * x0 + 2 * (1 - t) * t * x1 + t * t * x2;
+            const y = (1 - t) * (1 - t) * y0 + 2 * (1 - t) * t * y1 + t * t * y2;
             
-            segments.push({
-                type: 'line',
-                startX: startX,
-                startY: startY,
-                endX: endX,
-                endY: endY
-            });
+            points.push({ x, y });
         }
         
-        return segments;
+        return points;
     }
 
-    // NEW: Tessellate paths into triangles
-    tessellatePathsToTriangles(pathSegments, fillStyles, bounds) {
+    // NEW: Tessellate paths using ear-clipping algorithm
+    tessellatePathsWithEarClipping(pathSegments, fillStyles, bounds) {
         const triangles = [];
         
-        this.logToTerminal(`Tessellating ${pathSegments.length} paths into triangles`);
+        this.logToTerminal(`Ear-clipping tessellation of ${pathSegments.length} paths`);
         
         for (let pathIndex = 0; pathIndex < pathSegments.length && pathIndex < 50; pathIndex++) {
             const path = pathSegments[pathIndex];
             
-            if (path.edges.length < 3) {
-                // Need at least 3 edges to form a shape
+            if (path.points.length < 3) {
+                // Need at least 3 points to form a triangle
                 continue;
             }
             
             // Extract fill color
             const fillColor = this.getFillColorFromStyle(path.fillStyle0 || path.fillStyle1, fillStyles);
             
-            // Simple fan triangulation from path center
-            const pathTriangles = this.triangulatePathWithFan(path, fillColor);
+            // Use ear-clipping triangulation
+            const pathTriangles = this.triangulatePolygonWithEarClipping(path.points, fillColor);
             triangles.push(...pathTriangles);
         }
         
@@ -632,49 +622,144 @@ class WebGLFlashRenderer {
             triangles.push(...fallbackTriangles);
         }
         
-        this.logToTerminal(`Generated ${triangles.length} triangles`);
+        this.logToTerminal(`Ear-clipping generated ${triangles.length} triangles`);
         return triangles;
     }
 
-    // NEW: Simple fan triangulation
-    triangulatePathWithFan(path, fillColor) {
+    // NEW: Ear-clipping triangulation algorithm
+    triangulatePolygonWithEarClipping(points, fillColor) {
+        if (points.length < 3) return [];
+        
+        // Make a copy of points to avoid modifying original
+        const vertices = points.slice();
         const triangles = [];
         
-        if (path.edges.length < 3) return triangles;
-        
-        // Calculate path center for fan triangulation
-        const pathPoints = [];
-        pathPoints.push({ x: path.startX, y: path.startY });
-        
-        for (const edge of path.edges) {
-            pathPoints.push({ x: edge.endX, y: edge.endY });
+        // Remove duplicate consecutive points
+        for (let i = vertices.length - 1; i >= 1; i--) {
+            const curr = vertices[i];
+            const prev = vertices[i - 1];
+            const distance = Math.sqrt(
+                Math.pow(curr.x - prev.x, 2) + 
+                Math.pow(curr.y - prev.y, 2)
+            );
+            if (distance < 0.1) { // Very close points
+                vertices.splice(i, 1);
+            }
         }
         
-        // Calculate centroid
-        let centerX = 0, centerY = 0;
-        for (const point of pathPoints) {
-            centerX += point.x;
-            centerY += point.y;
-        }
-        centerX /= pathPoints.length;
-        centerY /= pathPoints.length;
+        if (vertices.length < 3) return [];
         
-        // Create fan triangles
-        for (let i = 0; i < pathPoints.length; i++) {
-            const currentPoint = pathPoints[i];
-            const nextPoint = pathPoints[(i + 1) % pathPoints.length];
+        // Ensure counter-clockwise winding
+        if (!this.isCounterClockwise(vertices)) {
+            vertices.reverse();
+        }
+        
+        // Ear clipping main loop
+        let attempts = 0;
+        while (vertices.length > 3 && attempts < vertices.length * 2) {
+            attempts++;
+            let earFound = false;
             
+            for (let i = 0; i < vertices.length; i++) {
+                const prevIndex = (i - 1 + vertices.length) % vertices.length;
+                const currIndex = i;
+                const nextIndex = (i + 1) % vertices.length;
+                
+                const prev = vertices[prevIndex];
+                const curr = vertices[currIndex];
+                const next = vertices[nextIndex];
+                
+                // Check if this vertex forms an ear
+                if (this.isEar(vertices, prevIndex, currIndex, nextIndex)) {
+                    // Create triangle
+                    triangles.push({
+                        vertices: [
+                            prev.x, prev.y,
+                            curr.x, curr.y,
+                            next.x, next.y
+                        ],
+                        color: fillColor
+                    });
+                    
+                    // Remove the ear vertex
+                    vertices.splice(currIndex, 1);
+                    earFound = true;
+                    break;
+                }
+            }
+            
+            if (!earFound) {
+                // If no ear found, something went wrong, break to avoid infinite loop
+                this.logToTerminal(`Ear-clipping failed to find ear, breaking with ${vertices.length} vertices remaining`);
+                break;
+            }
+        }
+        
+        // Add the final triangle
+        if (vertices.length === 3) {
             triangles.push({
                 vertices: [
-                    centerX, centerY,
-                    currentPoint.x, currentPoint.y,
-                    nextPoint.x, nextPoint.y
+                    vertices[0].x, vertices[0].y,
+                    vertices[1].x, vertices[1].y,
+                    vertices[2].x, vertices[2].y
                 ],
                 color: fillColor
             });
         }
         
         return triangles;
+    }
+
+    // NEW: Check if polygon is counter-clockwise
+    isCounterClockwise(vertices) {
+        let sum = 0;
+        for (let i = 0; i < vertices.length; i++) {
+            const curr = vertices[i];
+            const next = vertices[(i + 1) % vertices.length];
+            sum += (next.x - curr.x) * (next.y + curr.y);
+        }
+        return sum < 0;
+    }
+
+    // NEW: Check if vertex forms an ear
+    isEar(vertices, prevIndex, currIndex, nextIndex) {
+        const prev = vertices[prevIndex];
+        const curr = vertices[currIndex];
+        const next = vertices[nextIndex];
+        
+        // Check if angle is convex
+        if (!this.isConvex(prev, curr, next)) {
+            return false;
+        }
+        
+        // Check if any other vertex is inside this triangle
+        for (let i = 0; i < vertices.length; i++) {
+            if (i === prevIndex || i === currIndex || i === nextIndex) {
+                continue;
+            }
+            
+            if (this.pointInTriangle(vertices[i], prev, curr, next)) {
+                return false;
+            }
+        }
+        
+        return true;
+    }
+
+    // NEW: Check if angle is convex
+    isConvex(a, b, c) {
+        const cross = (c.x - a.x) * (b.y - a.y) - (c.y - a.y) * (b.x - a.x);
+        return cross > 0;
+    }
+
+    // NEW: Check if point is inside triangle
+    pointInTriangle(p, a, b, c) {
+        const area = Math.abs((b.x - a.x) * (c.y - a.y) - (c.x - a.x) * (b.y - a.y));
+        const area1 = Math.abs((a.x - p.x) * (b.y - p.y) - (b.x - p.x) * (a.y - p.y));
+        const area2 = Math.abs((b.x - p.x) * (c.y - p.y) - (c.x - p.x) * (b.y - p.y));
+        const area3 = Math.abs((c.x - p.x) * (a.y - p.y) - (a.x - p.x) * (c.y - p.y));
+        
+        return Math.abs(area - (area1 + area2 + area3)) < 0.1;
     }
 
     // NEW: Get fill color from style
@@ -750,7 +835,8 @@ class WebGLFlashRenderer {
             vertexCount: triangles.length * 3,
             triangleCount: triangles.length,
             bounds: null, // Will be calculated if needed
-            tessellated: true
+            tessellated: true,
+            method: 'ear-clipping'
         };
     }
 
@@ -811,7 +897,8 @@ class WebGLFlashRenderer {
             primitiveType: this.gl.TRIANGLES,
             vertexCount: 6,
             triangleCount: 2,
-            tessellated: false
+            tessellated: false,
+            method: 'fallback'
         };
         
         this.shapes.set(shapeData.shapeId, renderableShape);
@@ -1012,14 +1099,16 @@ class WebGLFlashRenderer {
         this.logToTerminal(`Shapes in map: ${this.shapes.size}`);
         
         // Log tessellation stats
-        let tessellatedCount = 0;
+        let earClippedCount = 0;
+        let fallbackCount = 0;
         let totalTriangles = 0;
         this.shapes.forEach(shape => {
-            if (shape.tessellated) tessellatedCount++;
+            if (shape.method === 'ear-clipping') earClippedCount++;
+            if (shape.method === 'fallback') fallbackCount++;
             totalTriangles += shape.triangleCount || 0;
         });
         
-        this.logToTerminal(`Tessellated shapes: ${tessellatedCount}/${this.shapes.size}, Total triangles: ${totalTriangles}`);
+        this.logToTerminal(`Ear-clipped shapes: ${earClippedCount}/${this.shapes.size}, Fallback: ${fallbackCount}, Total triangles: ${totalTriangles}`);
         
         this.logToTerminal(`Display objects in map: ${this.displayList.size}`);
         const displayObjects = Array.from(this.displayList.entries()).slice(0, 5);
@@ -1120,7 +1209,7 @@ class WebGLFlashRenderer {
     startRendering() {
         this.renderingActive = true;
         this.render();
-        this.logToTerminal('=== WEBGL RENDERING STARTED WITH TESSELLATION ===');
+        this.logToTerminal('=== WEBGL RENDERING STARTED WITH EAR-CLIPPING TESSELLATION ===');
     }
 
     stopRendering() {
