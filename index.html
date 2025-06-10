@@ -45,6 +45,26 @@
       font-size: 16px;
     }
 
+    .copy-button {
+      background-color: #28a745;
+      color: white;
+      border: none;
+      padding: 6px 12px;
+      border-radius: 3px;
+      cursor: pointer;
+      font-family: monospace;
+      font-size: 12px;
+    }
+
+    .copy-button:hover {
+      background-color: #218838;
+    }
+
+    .copy-button:active {
+      background-color: #1e7e34;
+      transform: scale(0.98);
+    }
+
     .upload-container {
       margin: 20px 0;
       display: flex;
@@ -423,13 +443,23 @@
     </div>
   </div>
 
+  <!-- Main Terminal Output -->
   <div class="terminal-header">
     <h3 class="terminal-title">Terminal Output</h3>
+    <button class="copy-button" id="copyTerminalButton">Copy</button>
   </div>
   <div class="terminal" id="terminalOutput">Waiting for file input...</div>
 
+  <!-- Display Terminal Output -->
+  <div class="terminal-header">
+    <h3 class="terminal-title">Display Output (WebGL Renderer)</h3>
+    <button class="copy-button" id="copyDisplayButton">Copy</button>
+  </div>
+  <div class="terminal" id="displayOutput">WebGL Flash Renderer initialized. Waiting for SWF file to begin rendering...</div>
+
   <script>
     const terminal = document.getElementById('terminalOutput');
+    const displayTerminal = document.getElementById('displayOutput');
     const uploadButton = document.getElementById('uploadButton');
     const fileInput = document.getElementById('SWF-Input');
     const fileNameDisplay = document.getElementById('fileName');
@@ -441,6 +471,52 @@
     const categoryFilter = document.getElementById('categoryFilter');
     const specificTagFilter = document.getElementById('specificTagFilter');
     const applyFilterButton = document.getElementById('applyFilterButton');
+
+    // Copy button functionality
+    const copyTerminalButton = document.getElementById('copyTerminalButton');
+    const copyDisplayButton = document.getElementById('copyDisplayButton');
+
+    copyTerminalButton.addEventListener('click', function() {
+      const terminalText = terminal.textContent;
+      navigator.clipboard.writeText(terminalText).then(function() {
+        const originalText = copyTerminalButton.textContent;
+        copyTerminalButton.textContent = 'Copied!';
+        copyTerminalButton.style.backgroundColor = '#20c997';
+        setTimeout(function() {
+          copyTerminalButton.textContent = originalText;
+          copyTerminalButton.style.backgroundColor = '#28a745';
+        }, 1000);
+      }).catch(function(err) {
+        console.error('Failed to copy terminal text: ', err);
+        copyTerminalButton.textContent = 'Failed';
+        copyTerminalButton.style.backgroundColor = '#dc3545';
+        setTimeout(function() {
+          copyTerminalButton.textContent = 'Copy';
+          copyTerminalButton.style.backgroundColor = '#28a745';
+        }, 1000);
+      });
+    });
+
+    copyDisplayButton.addEventListener('click', function() {
+      const displayText = displayTerminal.textContent;
+      navigator.clipboard.writeText(displayText).then(function() {
+        const originalText = copyDisplayButton.textContent;
+        copyDisplayButton.textContent = 'Copied!';
+        copyDisplayButton.style.backgroundColor = '#20c997';
+        setTimeout(function() {
+          copyDisplayButton.textContent = originalText;
+          copyDisplayButton.style.backgroundColor = '#28a745';
+        }, 1000);
+      }).catch(function(err) {
+        console.error('Failed to copy display text: ', err);
+        copyDisplayButton.textContent = 'Failed';
+        copyDisplayButton.style.backgroundColor = '#dc3545';
+        setTimeout(function() {
+          copyDisplayButton.textContent = 'Copy';
+          copyDisplayButton.style.backgroundColor = '#28a745';
+        }, 1000);
+      });
+    });
 
     // WebGL Renderer elements
     const webglCanvas = document.getElementById('webglCanvas');
@@ -459,6 +535,23 @@
     // WebGL Renderer variables
     let currentRenderer = null;
     let currentArrayBuffer = null;
+
+    // Override console.log for WebGL messages to display terminal
+    const originalConsoleLog = console.log;
+    console.log = function(...args) {
+      const message = args.join(' ');
+      if (message.includes('[WebGL]')) {
+        // Add to display terminal
+        const timestamp = new Date().toISOString().substring(11, 19);
+        displayTerminal.textContent += '\n' + message;
+        displayTerminal.scrollTop = displayTerminal.scrollHeight;
+      } else {
+        // Add to main terminal (for regular parsing output)
+        terminal.textContent += '\n' + message;
+        terminal.scrollTop = terminal.scrollHeight;
+      }
+      originalConsoleLog.apply(console, args);
+    };
 
     // Helper function to reset filter UI
     function resetFilterUI() {
@@ -631,6 +724,9 @@
       }
 
       try {
+        // Clear display terminal for new render session
+        displayTerminal.textContent = 'Starting WebGL Flash Renderer with ear-clipping tessellation...';
+        
         // Create WebGL renderer if it doesn't exist
         if (!currentRenderer) {
           currentRenderer = new WebGLFlashRenderer(webglCanvas);
@@ -646,6 +742,8 @@
         
       } catch (error) {
         webglInfo.textContent = `WebGL Error: ${error.message}`;
+        displayTerminal.textContent += `\nWebGL Error: ${error.message}`;
+        displayTerminal.scrollTop = displayTerminal.scrollHeight;
       }
     });
 
@@ -653,6 +751,8 @@
       if (currentRenderer) {
         currentRenderer.stopRendering();
         webglInfo.textContent = 'Rendering stopped';
+        displayTerminal.textContent += '\nWebGL rendering stopped by user';
+        displayTerminal.scrollTop = displayTerminal.scrollHeight;
       }
     });
 
@@ -668,6 +768,7 @@
       }
       
       webglInfo.textContent = 'Renderer cleared';
+      displayTerminal.textContent = 'WebGL Flash Renderer cleared. Ready for new SWF file...';
     });
 
     // Function to reparse current file
@@ -703,6 +804,7 @@
       }
 
       terminal.textContent = 'Determined that file is in SWF format...\nReading file...';
+      displayTerminal.textContent = `SWF file "${file.name}" loaded. Ready for WebGL rendering...`;
       window.start = true;
 
       try {
@@ -717,8 +819,12 @@
         
         // Update WebGL info
         webglInfo.textContent = `${file.name} loaded. Ready to render with direct SWF parsing.`;
+        displayTerminal.textContent += `\nSWF analysis complete. File contains ${parsedInfo.match(/Frame Count: (\d+)/)?.[1] || 'unknown'} frames. Ready for WebGL rendering.`;
+        displayTerminal.scrollTop = displayTerminal.scrollHeight;
       } catch (err) {
         terminal.textContent = 'Error reading SWF file: ' + err.message;
+        displayTerminal.textContent += `\nError reading SWF file: ${err.message}`;
+        displayTerminal.scrollTop = displayTerminal.scrollHeight;
       }
     });
   </script>
