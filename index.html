@@ -429,7 +429,7 @@
 
   <!-- WebGL Renderer Section -->
   <div class="webgl-header">
-    <h3 class="webgl-title">WebGL Flash Renderer with ShapeTranslator and DisplayTranslator</h3>
+    <h3 class="webgl-title">WebGL Flash Renderer (RENDERING ONLY - NO PARSING)</h3>
   </div>
   <div class="webgl-container">
     <canvas id="webglCanvas" class="webgl-canvas" width="550" height="400"></canvas>
@@ -439,7 +439,7 @@
       <button class="button clear-button" id="clearRenderButton">Clear</button>
     </div>
     <div class="webgl-info" id="webglInfo">
-      Ready to render Flash content with ShapeTranslator and DisplayTranslator integration. Upload a SWF file to begin.
+      WebGL Renderer ready. Only renders pre-processed data from Parse.js - NO PARSING PERFORMED.
     </div>
   </div>
 
@@ -455,7 +455,7 @@
     <h3 class="terminal-title">Display Output (WebGL Renderer)</h3>
     <button class="copy-button" id="copyDisplayButton">Copy</button>
   </div>
-  <div class="terminal" id="displayOutput">WebGL Flash Renderer with ShapeTranslator and DisplayTranslator initialized. Waiting for SWF file to begin rendering...</div>
+  <div class="terminal" id="displayOutput">WebGL Flash Renderer initialized. RENDERING ONLY MODE - requires pre-processed data from Parse.js...</div>
 
   <script>
     const terminal = document.getElementById('terminalOutput');
@@ -486,33 +486,17 @@
           copyTerminalButton.textContent = originalText;
           copyTerminalButton.style.backgroundColor = '#28a745';
         }, 1000);
-      }).catch(function(err) {
-        console.error('Failed to copy terminal text: ', err);
-        copyTerminalButton.textContent = 'Failed';
-        copyTerminalButton.style.backgroundColor = '#dc3545';
-        setTimeout(function() {
-          copyTerminalButton.textContent = 'Copy';
-          copyTerminalButton.style.backgroundColor = '#28a745';
-        }, 1000);
       });
     });
 
     copyDisplayButton.addEventListener('click', function() {
-      const displayText = displayTerminal.textContent;
-      navigator.clipboard.writeText(displayText).then(function() {
+      const displayTerminalText = displayTerminal.textContent;
+      navigator.clipboard.writeText(displayTerminalText).then(function() {
         const originalText = copyDisplayButton.textContent;
         copyDisplayButton.textContent = 'Copied!';
         copyDisplayButton.style.backgroundColor = '#20c997';
         setTimeout(function() {
           copyDisplayButton.textContent = originalText;
-          copyDisplayButton.style.backgroundColor = '#28a745';
-        }, 1000);
-      }).catch(function(err) {
-        console.error('Failed to copy display text: ', err);
-        copyDisplayButton.textContent = 'Failed';
-        copyDisplayButton.style.backgroundColor = '#dc3545';
-        setTimeout(function() {
-          copyDisplayButton.textContent = 'Copy';
           copyDisplayButton.style.backgroundColor = '#28a745';
         }, 1000);
       });
@@ -720,46 +704,53 @@
       }
     });
 
-    // WebGL Renderer button functionality with ShapeTranslator and DisplayTranslator integration
+    // WebGL Renderer button functionality - STRICTLY RENDERING ONLY, NO PARSING ALLOWED
     startRenderButton.addEventListener('click', function() {
-      if (!currentArrayBuffer) {
-        webglInfo.textContent = 'Please upload a SWF file first';
-        return;
-      }
-
       try {
-        // Clear display terminal for new render session
-        displayTerminal.textContent = 'Starting WebGL Flash Renderer with ShapeTranslator and DisplayTranslator integration...';
+        displayTerminal.textContent += '\n[Renderer] Starting WebGL Flash Renderer - RENDERING ONLY MODE (NO PARSING)';
         
         // Create WebGL renderer if it doesn't exist
         if (!currentRenderer) {
           currentRenderer = new WebGLFlashRenderer(webglCanvas);
+          displayTerminal.textContent += '\n[Renderer] WebGLFlashRenderer initialized - RENDERING ONLY';
         }
         
-        // Load translated shape data from TagParse.js if available
+        // STRICT SEPARATION: Only use pre-translated data from Parse.js - NEVER parse in renderer
         if (window.translatedShapeData && window.translatedShapeData.size > 0) {
-          displayTerminal.textContent += '\nUsing pre-translated shapes from TagParse.js ShapeTranslator...';
+          displayTerminal.textContent += `\n[Renderer] Loading ${window.translatedShapeData.size} pre-translated shapes from Parse.js ShapeTranslator`;
           currentRenderer.loadTranslatedShapeData(window.translatedShapeData);
+        } else {
+          // NO FALLBACK TO PARSING - Renderer refuses to parse
+          displayTerminal.textContent += '\n[Renderer] ERROR: No pre-translated shape data available from Parse.js';
+          displayTerminal.textContent += '\n[Renderer] WebGL Renderer WILL NOT PARSE - Upload and parse SWF file first using Parse.js';
+          webglInfo.textContent = 'No shape data from Parse.js. WebGL renderer will not parse - use Parse.js first.';
+          return;
         }
         
-        // Load translated display data from TagParse.js if available
+        // STRICT SEPARATION: Load display objects from Parse.js only - NEVER create/parse in renderer
         if (window.translatedDisplayData && window.translatedDisplayData.size > 0) {
-          displayTerminal.textContent += '\nUsing pre-translated display objects from TagParse.js DisplayTranslator...';
+          displayTerminal.textContent += `\n[Renderer] Loading ${window.translatedDisplayData.size} pre-translated display objects from Parse.js DisplayTranslator`;
           currentRenderer.loadTranslatedDisplayData(window.translatedDisplayData);
         } else {
-          // Fallback to direct SWF parsing if no translated data available
-          displayTerminal.textContent += '\nNo translated data available, falling back to direct SWF parsing...';
-          currentRenderer.loadFromFlashJSSWFData(currentArrayBuffer);
+          displayTerminal.textContent += '\n[Renderer] No pre-translated display data from Parse.js - creating basic display objects for shapes only';
+          // Only create simple display objects for existing shapes - NO PARSING
+          if (typeof currentRenderer.createDisplayObjectsForAllShapes === 'function') {
+            currentRenderer.createDisplayObjectsForAllShapes();
+          } else {
+            displayTerminal.textContent += '\n[Renderer] ERROR: createDisplayObjectsForAllShapes method not available';
+          }
         }
         
-        // Start render loop
+        // RENDERING ONLY: Start render loop with pre-processed data
         currentRenderer.startRendering();
         
-        webglInfo.textContent = 'WebGL rendering active with ShapeTranslator and DisplayTranslator integration';
+        webglInfo.textContent = 'WebGL rendering active - RENDERING ONLY MODE (no parsing performed)';
+        displayTerminal.textContent += '\n[Renderer] Rendering started successfully - USING ONLY PRE-PROCESSED DATA FROM PARSE.JS';
+        displayTerminal.scrollTop = displayTerminal.scrollHeight;
         
       } catch (error) {
-        webglInfo.textContent = `WebGL Error: ${error.message}`;
-        displayTerminal.textContent += `\nWebGL Error: ${error.message}`;
+        webglInfo.textContent = `WebGL Renderer Error: ${error.message}`;
+        displayTerminal.textContent += `\n[Renderer] ERROR: ${error.message}`;
         displayTerminal.scrollTop = displayTerminal.scrollHeight;
       }
     });
@@ -768,7 +759,7 @@
       if (currentRenderer) {
         currentRenderer.stopRendering();
         webglInfo.textContent = 'Rendering stopped';
-        displayTerminal.textContent += '\nWebGL rendering stopped by user';
+        displayTerminal.textContent += '\n[Renderer] Rendering stopped by user';
         displayTerminal.scrollTop = displayTerminal.scrollHeight;
       }
     });
@@ -788,11 +779,11 @@
         ctx.clearRect(0, 0, webglCanvas.width, webglCanvas.height);
       }
       
-      webglInfo.textContent = 'Renderer cleared';
-      displayTerminal.textContent = 'WebGL Flash Renderer with ShapeTranslator and DisplayTranslator cleared. Ready for new SWF file...';
+      webglInfo.textContent = 'Renderer cleared - ready for new Parse.js data (rendering only)';
+      displayTerminal.textContent = 'WebGL Flash Renderer cleared. RENDERING ONLY MODE - ready for new Parse.js processed data...';
     });
 
-    // Function to reparse current file with ShapeTranslator and DisplayTranslator integration
+    // Function to reparse current file - THIS IS PARSE.JS RESPONSIBILITY, NOT RENDERER
     function reparseCurrentFile() {
       const fileInput = document.getElementById('SWF-Input');
       if (fileInput.files[0]) {
@@ -802,6 +793,7 @@
           window.translatedShapeData.clear();
           window.translatedDisplayData.clear();
           
+          // USE PARSE.JS TO PROCESS DATA - NOT RENDERER
           const parsedInfo = parseSWFSignature(arrayBuffer);
           const tagInfo = parseSWFTags(arrayBuffer);
           terminal.textContent = parsedInfo + '\n\n' + tagInfo;
@@ -810,13 +802,14 @@
           const shapeCount = window.translatedShapeData.size;
           const displayCount = window.translatedDisplayData.size;
           if (shapeCount > 0 || displayCount > 0) {
-            displayTerminal.textContent += `\nShapeTranslator processed ${shapeCount} shapes, DisplayTranslator processed ${displayCount} display objects for WebGL rendering`;
+            displayTerminal.textContent += `\n[Parse.js] ShapeTranslator processed ${shapeCount} shapes, DisplayTranslator processed ${displayCount} display objects for WebGL rendering`;
             displayTerminal.scrollTop = displayTerminal.scrollHeight;
           }
         });
       }
     }
 
+    // FILE INPUT HANDLER - USES PARSE.JS FOR ALL PARSING, NEVER WEBGL RENDERER
     document.getElementById('SWF-Input').addEventListener('change', async function(event) {
       const file = event.target.files[0];
       if (!file) {
@@ -837,28 +830,29 @@
       }
 
       terminal.textContent = 'Determined that file is in SWF format...\nReading file...';
-      displayTerminal.textContent = `SWF file "${file.name}" loaded. Ready for WebGL rendering with ShapeTranslator and DisplayTranslator...`;
+      displayTerminal.textContent = `SWF file "${file.name}" loaded. Ready for Parse.js processing and WebGL rendering...`;
       window.start = true;
 
       try {
         const arrayBuffer = await file.arrayBuffer();
         
-        // Store the array buffer for direct WebGL rendering
+        // Store the array buffer for Parse.js processing ONLY
         currentArrayBuffer = arrayBuffer;
         
         // Clear previous translated data
         window.translatedShapeData.clear();
         window.translatedDisplayData.clear();
         
+        // USE PARSE.JS FOR ALL PARSING - NEVER WEBGL RENDERER
         const parsedInfo = parseSWFSignature(arrayBuffer);
         const tagInfo = parseSWFTags(arrayBuffer);
         terminal.textContent = parsedInfo + '\n\n' + tagInfo;
         
-        // Update WebGL info with ShapeTranslator and DisplayTranslator status
+        // Update WebGL info with Parse.js processing status
         const shapeCount = window.translatedShapeData.size;
         const displayCount = window.translatedDisplayData.size;
-        webglInfo.textContent = `${file.name} loaded. ${shapeCount} shapes translated, ${displayCount} display objects processed. Ready for WebGL rendering.`;
-        displayTerminal.textContent += `\nSWF analysis complete. ${shapeCount} shapes processed by ShapeTranslator, ${displayCount} display objects processed by DisplayTranslator. File contains ${parsedInfo.match(/Frame Count: (\d+)/)?.[1] || 'unknown'} frames. Ready for WebGL rendering.`;
+        webglInfo.textContent = `${file.name} processed by Parse.js. ${shapeCount} shapes translated, ${displayCount} display objects processed. Ready for WebGL rendering ONLY.`;
+        displayTerminal.textContent += `\nSWF analysis complete by Parse.js. ${shapeCount} shapes processed by ShapeTranslator, ${displayCount} display objects processed by DisplayTranslator. File contains ${parsedInfo.match(/Frame Count: (\d+)/)?.[1] || 'unknown'} frames. Ready for WebGL rendering ONLY.`;
         displayTerminal.scrollTop = displayTerminal.scrollHeight;
       } catch (err) {
         terminal.textContent = 'Error reading SWF file: ' + err.message;
