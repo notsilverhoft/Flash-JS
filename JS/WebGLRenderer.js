@@ -1,45 +1,42 @@
 /**
- * WebGL Flash Game Renderer for Flash-JS Repository
- * Integrates with Parse.js webpage terminal output for debugging
- * Uses ShapeTranslator.js for clean, pre-processed geometry data
- * Simplified to focus only on rendering, not shape processing
+ * WebGL Flash Renderer for Flash-JS Repository
+ * ONLY RENDERS pre-translated data - NO PARSING FUNCTIONALITY
+ * Strict separation from parsing pipeline
+ * Receives data from ShapeTranslator and DisplayTranslator
  */
 
 class WebGLFlashRenderer {
     constructor(canvas) {
         this.canvas = canvas;
         this.gl = null;
+        
+        // Store shapes and display objects
+        this.shapes = new Map(); // characterId -> translated geometry
+        this.displayList = new Map(); // depth -> display object
+        
+        // WebGL state
         this.program = null;
         this.buffers = {};
-        this.uniforms = {};
         this.attributes = {};
-        
-        // Performance tracking
-        this.frameCount = 0;
-        this.lastFrameTime = 0;
-        this.fps = 0;
-        this.renderingActive = false;
+        this.uniforms = {};
         
         // Rendering state
-        this.shapes = new Map(); // ID -> translated geometry
-        this.displayList = new Map(); // depth -> display object
-        this.textures = new Map();
+        this.renderingActive = false;
+        this.lastFrameTime = 0;
+        this.frameCount = 0;
+        this.fps = 0;
+        this.renderAttempts = 0;
+        
+        // Stage properties
+        this.stageWidth = 550;
+        this.stageHeight = 400;
+        this.backgroundColor = [0.2, 0.2, 0.2, 1.0];
+        
+        // Matrices
         this.projectionMatrix = new Float32Array(16);
         this.viewMatrix = new Float32Array(16);
         
-        // Flash-JS parser integration
-        this.shapeParsers = null;
-        this.displayParsers = null;
-        this.shapeTranslator = null;
-        this.stageWidth = 550;
-        this.stageHeight = 400;
-        
-        // Debugging state for Flash-JS repository
-        this.debugMode = true;
-        this.renderAttempts = 0;
-        this.shapeIdMap = new Map();
-        this.displayObjectCharacterIds = new Set();
-        
+        // Initialize WebGL
         this.initialize();
     }
 
@@ -49,14 +46,10 @@ class WebGLFlashRenderer {
             this.gl = this.canvas.getContext('webgl') || this.canvas.getContext('experimental-webgl');
             
             if (!this.gl) {
-                throw new Error('WebGL not supported');
+                this.logToTerminal('WebGL not supported');
+                return false;
             }
-
-            // Set up WebGL state
-            this.gl.enable(this.gl.BLEND);
-            this.gl.blendFunc(this.gl.SRC_ALPHA, this.gl.ONE_MINUS_SRC_ALPHA);
-            this.gl.disable(this.gl.DEPTH_TEST);
-
+            
             // Create shader program
             this.createShaderProgram();
             
@@ -66,100 +59,73 @@ class WebGLFlashRenderer {
             // Set up projection matrix
             this.updateProjectionMatrix();
             
-            // Initialize view matrix
+            // Set view matrix (identity)
             this.setIdentityMatrix(this.viewMatrix);
-
-            // Initialize Flash-JS parsers and translator
-            this.initializeParsersAndTranslator();
-
-            this.logToTerminal('WebGL Flash Renderer initialized with ShapeTranslator integration');
+            
+            this.logToTerminal('WebGL initialized successfully');
+            return true;
             
         } catch (error) {
-            this.logToTerminal(`WebGL initialization failed: ${error.message}`);
-            throw error;
-        }
-    }
-
-    initializeParsersAndTranslator() {
-        try {
-            // Initialize Flash-JS ShapeParsers
-            if (typeof ShapeParsers !== 'undefined') {
-                this.shapeParsers = new ShapeParsers();
-                this.logToTerminal('ShapeParsers initialized for Flash-JS integration');
-            } else {
-                this.logToTerminal('ERROR: ShapeParsers not available');
-            }
-            
-            // Initialize Flash-JS DisplayParsers
-            if (typeof DisplayParsers !== 'undefined') {
-                this.displayParsers = new DisplayParsers();
-                this.logToTerminal('DisplayParsers initialized for Flash-JS integration');
-            } else {
-                this.logToTerminal('ERROR: DisplayParsers not available');
-            }
-
-            // Initialize ShapeTranslator for clean geometry data
-            if (typeof ShapeTranslator !== 'undefined') {
-                this.shapeTranslator = new ShapeTranslator();
-                this.logToTerminal('ShapeTranslator initialized - clean separation of translation and rendering');
-            } else {
-                this.logToTerminal('ERROR: ShapeTranslator not available - cannot process shapes');
-            }
-            
-        } catch (error) {
-            this.logToTerminal(`Parser initialization error: ${error.message}`);
+            this.logToTerminal(`WebGL initialization error: ${error.message}`);
+            return false;
         }
     }
 
     createShaderProgram() {
-        // Vertex shader for sprite rendering
-        const vertexShaderSource = `
-            attribute vec2 a_position;
-            attribute vec4 a_color;
+        // Vertex shader source
+        const vsSource = `
+            attribute vec2 aVertexPosition;
+            attribute vec4 aVertexColor;
             
-            uniform mat4 u_projectionMatrix;
-            uniform mat4 u_viewMatrix;
-            uniform mat4 u_modelMatrix;
+            uniform mat4 uProjectionMatrix;
+            uniform mat4 uViewMatrix;
+            uniform mat4 uModelMatrix;
             
-            varying vec4 v_color;
+            varying lowp vec4 vColor;
             
-            void main() {
-                gl_Position = u_projectionMatrix * u_viewMatrix * u_modelMatrix * vec4(a_position, 0.0, 1.0);
-                v_color = a_color;
+            void main(void) {
+                gl_Position = uProjectionMatrix * uViewMatrix * uModelMatrix * vec4(aVertexPosition, 0.0, 1.0);
+                vColor = aVertexColor;
             }
         `;
-
-        // Fragment shader for sprite rendering
-        const fragmentShaderSource = `
-            precision mediump float;
+        
+        // Fragment shader source
+        const fsSource = `
+            varying lowp vec4 vColor;
             
-            varying vec4 v_color;
-            
-            void main() {
-                gl_FragColor = v_color;
+            void main(void) {
+                gl_FragColor = vColor;
             }
         `;
-
-        const vertexShader = this.compileShader(vertexShaderSource, this.gl.VERTEX_SHADER);
-        const fragmentShader = this.compileShader(fragmentShaderSource, this.gl.FRAGMENT_SHADER);
-
+        
+        // Compile shaders
+        const vertexShader = this.compileShader(vsSource, this.gl.VERTEX_SHADER);
+        const fragmentShader = this.compileShader(fsSource, this.gl.FRAGMENT_SHADER);
+        
+        // Create program
         this.program = this.gl.createProgram();
         this.gl.attachShader(this.program, vertexShader);
         this.gl.attachShader(this.program, fragmentShader);
         this.gl.linkProgram(this.program);
-
+        
+        // Check if program linked successfully
         if (!this.gl.getProgramParameter(this.program, this.gl.LINK_STATUS)) {
-            throw new Error('Shader program linking failed: ' + this.gl.getProgramInfoLog(this.program));
+            this.logToTerminal(`Unable to link shader program: ${this.gl.getProgramInfoLog(this.program)}`);
+            return null;
         }
-
+        
         // Get attribute and uniform locations
-        this.attributes.position = this.gl.getAttribLocation(this.program, 'a_position');
-        this.attributes.color = this.gl.getAttribLocation(this.program, 'a_color');
-
-        this.uniforms.projectionMatrix = this.gl.getUniformLocation(this.program, 'u_projectionMatrix');
-        this.uniforms.viewMatrix = this.gl.getUniformLocation(this.program, 'u_viewMatrix');
-        this.uniforms.modelMatrix = this.gl.getUniformLocation(this.program, 'u_modelMatrix');
-
+        this.attributes = {
+            position: this.gl.getAttribLocation(this.program, 'aVertexPosition'),
+            color: this.gl.getAttribLocation(this.program, 'aVertexColor')
+        };
+        
+        this.uniforms = {
+            projectionMatrix: this.gl.getUniformLocation(this.program, 'uProjectionMatrix'),
+            viewMatrix: this.gl.getUniformLocation(this.program, 'uViewMatrix'),
+            modelMatrix: this.gl.getUniformLocation(this.program, 'uModelMatrix')
+        };
+        
         this.logToTerminal('Shader program created successfully');
     }
 
@@ -167,294 +133,92 @@ class WebGLFlashRenderer {
         const shader = this.gl.createShader(type);
         this.gl.shaderSource(shader, source);
         this.gl.compileShader(shader);
-
+        
+        // Check if shader compiled successfully
         if (!this.gl.getShaderParameter(shader, this.gl.COMPILE_STATUS)) {
-            const error = this.gl.getShaderInfoLog(shader);
+            this.logToTerminal(`Error compiling shader: ${this.gl.getShaderInfoLog(shader)}`);
             this.gl.deleteShader(shader);
-            throw new Error('Shader compilation failed: ' + error);
+            return null;
         }
-
+        
         return shader;
     }
 
     createBuffers() {
-        // Create vertex buffer for shapes (position + color)
-        this.buffers.vertex = this.gl.createBuffer();
-        this.buffers.color = this.gl.createBuffer();
-
+        // Create vertex position buffer
+        this.buffers = {
+            vertex: this.gl.createBuffer(),
+            color: this.gl.createBuffer()
+        };
+        
         this.logToTerminal('WebGL buffers created');
     }
 
     updateProjectionMatrix() {
-        const width = this.canvas.width;
-        const height = this.canvas.height;
+        // Use orthographic projection for 2D rendering
+        this.setOrthographicMatrix(
+            this.projectionMatrix,
+            0, this.stageWidth,
+            this.stageHeight, 0,
+            -1, 1
+        );
         
-        // Create orthographic projection matrix for 2D Flash content
-        this.setOrthographicMatrix(this.projectionMatrix, 0, width, height, 0, -1, 1);
-        
-        this.logToTerminal(`Projection matrix updated for ${width}x${height}`);
+        this.logToTerminal(`Updated projection matrix for stage: ${this.stageWidth}x${this.stageHeight}`);
     }
 
     setOrthographicMatrix(matrix, left, right, bottom, top, near, far) {
-        const lr = 1 / (left - right);
-        const bt = 1 / (bottom - top);
-        const nf = 1 / (near - far);
-
-        matrix[0] = -2 * lr;
+        // Column-major order
+        matrix[0] = 2 / (right - left);
         matrix[1] = 0;
         matrix[2] = 0;
         matrix[3] = 0;
+        
         matrix[4] = 0;
-        matrix[5] = -2 * bt;
+        matrix[5] = 2 / (top - bottom);
         matrix[6] = 0;
         matrix[7] = 0;
+        
         matrix[8] = 0;
         matrix[9] = 0;
-        matrix[10] = 2 * nf;
+        matrix[10] = -2 / (far - near);
         matrix[11] = 0;
-        matrix[12] = (left + right) * lr;
-        matrix[13] = (top + bottom) * bt;
-        matrix[14] = (far + near) * nf;
+        
+        matrix[12] = -(right + left) / (right - left);
+        matrix[13] = -(top + bottom) / (top - bottom);
+        matrix[14] = -(far + near) / (far - near);
         matrix[15] = 1;
     }
 
     setIdentityMatrix(matrix) {
-        matrix.fill(0);
-        matrix[0] = matrix[5] = matrix[10] = matrix[15] = 1;
-    }
-
-    // Direct integration with Flash-JS SWF tag parsing pipeline
-    loadFromFlashJSSWFData(arrayBuffer) {
-        this.logToTerminal('=== STARTING FLASH-JS SWF DATA LOADING WITH SHAPE TRANSLATOR ===');
-
-        try {
-            // Clear existing data
-            this.shapes.clear();
-            this.displayList.clear();
-            this.shapeIdMap.clear();
-            this.displayObjectCharacterIds.clear();
-            
-            // Parse SWF signature data using Flash-JS Parse.js
-            const signatureData = parseSWFSignature(arrayBuffer);
-            this.setupViewportFromSignature(signatureData);
-
-            // Parse tags directly using Flash-JS tag parsing pipeline
-            this.parseTagsWithTranslator(arrayBuffer);
-
-            this.logToTerminal(`=== LOADING COMPLETE ===`);
-            this.logToTerminal(`Translated shapes: ${this.shapes.size}, Display objects: ${this.displayList.size}`);
-
-            // Analyze shape-display object linking
-            this.analyzeShapeDisplayLinking();
-            
-            // Create display objects for all translated shapes
-            this.createDisplayObjectsForAllShapes();
-
-            // Debug log all objects
-            this.debugLogAllObjects();
-
-        } catch (error) {
-            this.logToTerminal(`Error loading Flash-JS SWF data: ${error.message}`);
-        }
-    }
-
-    parseTagsWithTranslator(arrayBuffer) {
-        const bytes = new Uint8Array(arrayBuffer);
-        
-        if (arrayBuffer.byteLength < 8) {
-            this.logToTerminal('Invalid SWF file: File is too small');
-            return;
-        }
-        
-        // Read signature to determine processing method
-        const signature = String.fromCharCode(bytes[0], bytes[1], bytes[2]);
-        let tagData;
-        
-        this.logToTerminal(`SWF signature: ${signature}`);
-        
-        try {
-            switch (signature) {
-                case 'FWS':
-                    this.logToTerminal('Processing uncompressed FWS file with ShapeTranslator');
-                    const rect = parseRECT(bytes, 8);
-                    const nbits = (bytes[8] >> 3) & 0x1F;
-                    const rectBits = 5 + (4 * nbits);
-                    const rectBytes = Math.ceil(rectBits / 8);
-                    const tagOffset = 8 + rectBytes + 4;
-                    tagData = bytes.slice(tagOffset);
-                    break;
-                    
-                case 'CWS':
-                    this.logToTerminal('Processing ZLIB compressed CWS file with ShapeTranslator');
-                    const compressedData = arrayBuffer.slice(8);
-                    const decompressedData = pako.inflate(new Uint8Array(compressedData));
-                    
-                    const rectCWS = parseRECT(decompressedData, 0);
-                    const nbitsCWS = (decompressedData[0] >> 3) & 0x1F;
-                    const rectBitsCWS = 5 + (4 * nbitsCWS);
-                    const rectBytesCWS = Math.ceil(rectBitsCWS / 8);
-                    const tagOffsetCWS = rectBytesCWS + 4;
-                    tagData = decompressedData.slice(tagOffsetCWS);
-                    break;
-                    
-                case 'ZWS':
-                    this.logToTerminal('LZMA decompression not yet supported for direct rendering');
-                    return;
-                    
-                default:
-                    this.logToTerminal(`Unknown SWF format: ${signature}`);
-                    return;
-            }
-            
-            this.parseTagDataWithTranslator(tagData);
-            
-        } catch (error) {
-            this.logToTerminal(`Error parsing tags for rendering: ${error.message}`);
-        }
-    }
-
-    parseTagDataWithTranslator(tagData) {
-        let offset = 0;
-        let tagIndex = 0;
-        
-        this.logToTerminal('=== PARSING TAGS WITH SHAPE TRANSLATOR ===');
-        
-        while (offset < tagData.length && tagIndex < 100) {
-            const tagHeader = this.parseTagHeader(tagData, offset);
-            
-            if (!tagHeader) {
-                this.logToTerminal(`Error parsing tag header at offset ${offset}`);
-                break;
-            }
-            
-            const contentOffset = offset + tagHeader.headerSize;
-            
-            // Process shape definition tags using ShapeTranslator
-            if ([2, 22, 32, 83].includes(tagHeader.type)) {
-                if (this.shapeParsers && this.shapeTranslator) {
-                    try {
-                        // Parse shape using Flash-JS ShapeParsers
-                        const parsedShape = this.shapeParsers.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
-                        
-                        if (parsedShape && parsedShape.data && parsedShape.data.shapeId !== undefined) {
-                            // Translate to WebGL-ready geometry using ShapeTranslator
-                            const translatedGeometry = this.shapeTranslator.translateShape(parsedShape.data);
-                            
-                            // Store translated geometry for rendering
-                            this.shapes.set(parsedShape.data.shapeId, translatedGeometry);
-                            this.shapeIdMap.set(parsedShape.data.shapeId, true);
-                            
-                            this.logToTerminal(`Shape ${parsedShape.data.shapeId} translated: ${translatedGeometry.triangleCount} triangles`);
-                        }
-                    } catch (error) {
-                        this.logToTerminal(`Error processing shape tag ${tagHeader.type}: ${error.message}`);
-                    }
-                }
-            }
-            
-            // Process display list tags using Flash-JS DisplayParsers
-            if ([4, 26, 70].includes(tagHeader.type)) {
-                if (this.displayParsers) {
-                    try {
-                        const parsedDisplay = this.displayParsers.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
-                        if (parsedDisplay && parsedDisplay.data && parsedDisplay.data.depth !== undefined) {
-                            this.processDisplayObjectForRendering(parsedDisplay.data);
-                            if (parsedDisplay.data.characterId !== undefined) {
-                                this.displayObjectCharacterIds.add(parsedDisplay.data.characterId);
-                            }
-                        }
-                    } catch (error) {
-                        this.logToTerminal(`Error parsing display tag ${tagHeader.type}: ${error.message}`);
-                    }
-                }
-            }
-            
-            // If this is the End tag (type 0), stop parsing
-            if (tagHeader.type === 0) {
-                this.logToTerminal('End tag reached - parsing complete');
-                break;
-            }
-            
-            // Move to next tag
-            offset += tagHeader.headerSize + tagHeader.length;
-            tagIndex++;
-        }
-        
-        this.logToTerminal(`Processed ${tagIndex} tags with ShapeTranslator`);
-    }
-
-    parseTagHeader(data, offset) {
-        if (offset + 2 > data.length) {
-            return null;
-        }
-        
-        const byte1 = data[offset];
-        const byte2 = data[offset + 1];
-        
-        const tagAndLength = (byte2 << 8) | byte1;
-        const tagType = (tagAndLength >> 6) & 0x3FF;
-        const shortLength = tagAndLength & 0x3F;
-        
-        let length, headerSize;
-        
-        if (shortLength === 0x3F) {
-            if (offset + 6 > data.length) {
-                return null;
-            }
-            
-            length = data[offset + 2] | 
-                     (data[offset + 3] << 8) | 
-                     (data[offset + 4] << 16) | 
-                     (data[offset + 5] << 24);
-            headerSize = 6;
-        } else {
-            length = shortLength;
-            headerSize = 2;
-        }
-        
-        return {
-            type: tagType,
-            length: length,
-            headerSize: headerSize
-        };
-    }
-
-    processDisplayObjectForRendering(displayData) {
-        this.logToTerminal(`Processing display object: Character ${displayData.characterId} at depth ${displayData.depth}`);
-        
-        const depth = displayData.depth;
-        const characterId = displayData.characterId;
-        
-        // Create display object with transform matrix
-        const displayObject = {
-            characterId: characterId,
-            depth: depth,
-            matrix: this.extractTransformMatrix(displayData),
-            visible: true
-        };
-        
-        this.displayList.set(depth, displayObject);
-        
-        this.logToTerminal(`Display object stored at depth ${depth} referencing character ${characterId}`);
+        matrix[0] = 1;  matrix[4] = 0;  matrix[8] = 0;   matrix[12] = 0;
+        matrix[1] = 0;  matrix[5] = 1;  matrix[9] = 0;   matrix[13] = 0;
+        matrix[2] = 0;  matrix[6] = 0;  matrix[10] = 1;  matrix[14] = 0;
+        matrix[3] = 0;  matrix[7] = 0;  matrix[11] = 0;  matrix[15] = 1;
     }
 
     extractTransformMatrix(displayData) {
-        // Extract transform matrix from Flash-JS DisplayParsers data structure
         const matrix = new Float32Array(16);
         this.setIdentityMatrix(matrix);
         
-        if (displayData.matrix) {
+        if (displayData && displayData.matrix) {
             const m = displayData.matrix;
             
-            // Apply scale
-            if (m.scaleX !== undefined && m.scaleX !== 0) matrix[0] = m.scaleX;
-            if (m.scaleY !== undefined && m.scaleY !== 0) matrix[5] = m.scaleY;
+            // Apply scaling
+            if (m.scaleX !== undefined) matrix[0] = m.scaleX;
+            if (m.scaleY !== undefined) matrix[5] = m.scaleY;
             
-            // Apply rotation/skew (simplified)
-            if (m.rotateSkew0 !== undefined) matrix[1] = m.rotateSkew0;
-            if (m.rotateSkew1 !== undefined) matrix[4] = m.rotateSkew1;
+            // Apply rotation (skew)
+            if (m.skewX !== undefined) {
+                matrix[1] = Math.sin(m.skewX);
+                matrix[0] = Math.cos(m.skewX) * (m.scaleX !== undefined ? m.scaleX : 1.0);
+            }
             
-            // Apply translation (convert twips to pixels)
+            if (m.skewY !== undefined) {
+                matrix[4] = Math.sin(m.skewY);
+                matrix[5] = Math.cos(m.skewY) * (m.scaleY !== undefined ? m.scaleY : 1.0);
+            }
+            
+            // Apply translation (convert from twips if needed)
             if (m.translateX !== undefined) matrix[12] = m.translateX / 20;
             if (m.translateY !== undefined) matrix[13] = m.translateY / 20;
         }
@@ -464,20 +228,33 @@ class WebGLFlashRenderer {
 
     analyzeShapeDisplayLinking() {
         this.logToTerminal('=== ANALYZING SHAPE-DISPLAY LINKING ===');
+        const shapesInUse = new Set();
         
-        const availableShapeIds = Array.from(this.shapes.keys());
-        const referencedCharacterIds = Array.from(this.displayObjectCharacterIds);
-        
-        this.logToTerminal(`Translated shape IDs: [${availableShapeIds.slice(0, 10).join(', ')}${availableShapeIds.length > 10 ? '...' : ''}] (${availableShapeIds.length} total)`);
-        this.logToTerminal(`Referenced character IDs: [${referencedCharacterIds.join(', ')}] (${referencedCharacterIds.length} total)`);
-        
-        if (referencedCharacterIds.length === 0) {
-            this.logToTerminal('NO DISPLAY OBJECTS FOUND - Will create display objects for all translated shapes');
+        // Find which shapes are used in display list
+        for (const [depth, displayObj] of this.displayList.entries()) {
+            if (displayObj.characterId !== undefined) {
+                shapesInUse.add(displayObj.characterId);
+            }
         }
+        
+        // Log shapes not in use
+        let unusedShapeCount = 0;
+        for (const characterId of this.shapes.keys()) {
+            if (!shapesInUse.has(characterId)) {
+                unusedShapeCount++;
+            }
+        }
+        
+        this.logToTerminal(`Shape usage analysis: ${shapesInUse.size} shapes used in display list, ${unusedShapeCount} unused shapes`);
+        
+        return {
+            shapesInUse: shapesInUse,
+            unusedShapeCount: unusedShapeCount
+        };
     }
 
     createDisplayObjectsForAllShapes() {
-        this.logToTerminal('=== CREATING DISPLAY OBJECTS FOR ALL TRANSLATED SHAPES ===');
+        this.logToTerminal('Creating display objects for all translated shapes');
         
         const availableShapeIds = Array.from(this.shapes.keys());
         let createdCount = 0;
@@ -489,7 +266,7 @@ class WebGLFlashRenderer {
         const cellWidth = this.stageWidth / cols;
         const cellHeight = this.stageHeight / rows;
         
-        this.logToTerminal(`Creating ${availableShapeIds.length} display objects for translated shapes in ${cols}x${rows} grid`);
+        this.logToTerminal(`Creating ${availableShapeIds.length} display objects in ${cols}x${rows} grid`);
         
         for (let i = 0; i < availableShapeIds.length; i++) {
             const shapeId = availableShapeIds[i];
@@ -497,49 +274,53 @@ class WebGLFlashRenderer {
             const row = Math.floor(i / cols);
             
             // Calculate position in grid
-            const x = col * cellWidth + cellWidth * 0.1;
-            const y = row * cellHeight + cellHeight * 0.1;
+            const x = col * cellWidth + cellWidth / 2;
+            const y = row * cellHeight + cellHeight / 2;
             
-            // Create transform matrix with position
+            // Create display object with identity matrix
             const matrix = new Float32Array(16);
             this.setIdentityMatrix(matrix);
-            matrix[12] = x; // X translation
-            matrix[13] = y; // Y translation
+            
+            // Set translation
+            matrix[12] = x;
+            matrix[13] = y;
+            
+            // Set scale based on cell size
+            const scale = Math.min(cellWidth, cellHeight) / 200;
+            matrix[0] = scale;
+            matrix[5] = scale;
             
             const displayObject = {
                 characterId: shapeId,
-                depth: depth,
+                depth: depth++,
                 matrix: matrix,
                 visible: true
             };
             
-            this.displayList.set(depth, displayObject);
-            this.logToTerminal(`Created display object for translated shape ${shapeId} at depth ${depth}, position (${x.toFixed(1)}, ${y.toFixed(1)})`);
-            
-            depth++;
+            this.displayList.set(displayObject.depth, displayObject);
             createdCount++;
         }
         
         this.logToTerminal(`Created ${createdCount} display objects for translated shapes`);
+        return createdCount > 0;
     }
 
     setupViewportFromSignature(signatureData) {
-        // Parse signature data to extract stage dimensions
-        const lines = signatureData.split('\n');
-        for (const line of lines) {
-            if (line.includes('Stage Dimensions:')) {
-                const match = line.match(/(\d+)\s*×\s*(\d+)\s*pixels/);
-                if (match) {
-                    this.stageWidth = parseInt(match[1]);
-                    this.stageHeight = parseInt(match[2]);
-                    this.canvas.width = this.stageWidth;
-                    this.canvas.height = this.stageHeight;
-                    this.updateProjectionMatrix();
-                    this.logToTerminal(`Viewport set to ${this.stageWidth}x${this.stageHeight} from Flash-JS signature data`);
-                    break;
-                }
-            }
+        if (!signatureData || !signatureData.frameSize) {
+            return false;
         }
+        
+        // Extract frame size from signature data
+        const frameWidth = (signatureData.frameSize.xMax - signatureData.frameSize.xMin) / 20;
+        const frameHeight = (signatureData.frameSize.yMax - signatureData.frameSize.yMin) / 20;
+        
+        // Update stage size
+        if (frameWidth > 0 && frameHeight > 0) {
+            this.setStageSize(frameWidth, frameHeight);
+            return true;
+        }
+        
+        return false;
     }
 
     createIdentityMatrix() {
@@ -584,14 +365,14 @@ class WebGLFlashRenderer {
             this.logToTerminal(`FPS: ${this.fps}, Translated shapes: ${this.shapes.size}, Display objects: ${this.displayList.size}`);
         }
 
-        // Clear canvas with dark gray background for contrast
+        // Clear canvas with background color
         this.gl.viewport(0, 0, this.canvas.width, this.canvas.height);
-        this.gl.clearColor(0.2, 0.2, 0.2, 1.0);
+        this.gl.clearColor(...this.backgroundColor);
         this.gl.clear(this.gl.COLOR_BUFFER_BIT);
 
         // Use shader program
         this.gl.useProgram(this.program);
-
+        
         // Set uniforms
         this.gl.uniformMatrix4fv(this.uniforms.projectionMatrix, false, this.projectionMatrix);
         this.gl.uniformMatrix4fv(this.uniforms.viewMatrix, false, this.viewMatrix);
@@ -656,8 +437,9 @@ class WebGLFlashRenderer {
 
     startRendering() {
         this.renderingActive = true;
+        this.lastFrameTime = performance.now();
         this.render();
-        this.logToTerminal('=== WEBGL RENDERING STARTED WITH SHAPE TRANSLATOR ===');
+        this.logToTerminal('=== WEBGL RENDERING STARTED WITH TRANSLATED DATA ===');
     }
 
     stopRendering() {
@@ -677,35 +459,82 @@ class WebGLFlashRenderer {
         const timestamp = new Date().toISOString().substring(11, 19);
         const logMessage = `[${timestamp}] [WebGL] ${message}`;
         
-        console.log(logMessage);
-        
         // Use Flash-JS Parse.js webpage terminal output system
-        const terminal = document.getElementById('terminalOutput');
+        const terminal = document.getElementById('displayOutput');
         if (terminal) {
             terminal.textContent += '\n' + logMessage;
             terminal.scrollTop = terminal.scrollHeight;
         }
     }
 
-    // Cleanup
-    destroy() {
-        this.renderingActive = false;
+    // Set stage dimensions
+    setStageSize(width, height) {
+        this.stageWidth = width;
+        this.stageHeight = height;
         
-        if (this.gl) {
-            if (this.program) {
-                this.gl.deleteProgram(this.program);
-            }
-            
-            Object.values(this.buffers).forEach(buffer => {
-                this.gl.deleteBuffer(buffer);
-            });
-            
-            this.textures.forEach(texture => {
-                this.gl.deleteTexture(texture);
-            });
+        // Update canvas dimensions if provided
+        if (this.canvas) {
+            this.canvas.width = width;
+            this.canvas.height = height;
+            this.gl.viewport(0, 0, width, height);
         }
         
-        this.logToTerminal('WebGL Flash Renderer destroyed');
+        // Update projection matrix
+        this.updateProjectionMatrix();
+        
+        this.logToTerminal(`Stage size updated to ${width}x${height}`);
+    }
+
+    // Set background color
+    setBackgroundColor(r, g, b, a = 1.0) {
+        this.backgroundColor = [r, g, b, a];
+        this.logToTerminal(`Background color set to [${r}, ${g}, ${b}, ${a}]`);
+    }
+
+    // Add a single display object
+    addDisplayObject(displayObject) {
+        if (!displayObject || displayObject.depth === undefined || displayObject.characterId === undefined) {
+            this.logToTerminal('Invalid display object');
+            return false;
+        }
+        
+        this.displayList.set(displayObject.depth, displayObject);
+        this.logToTerminal(`Added display object at depth ${displayObject.depth} with character ID ${displayObject.characterId}`);
+        return true;
+    }
+
+    // Remove a display object at specified depth
+    removeDisplayObject(depth) {
+        if (this.displayList.has(depth)) {
+            this.displayList.delete(depth);
+            this.logToTerminal(`Removed display object at depth ${depth}`);
+            return true;
+        } else {
+            this.logToTerminal(`No display object found at depth ${depth}`);
+            return false;
+        }
+    }
+
+    // Cleanup
+    destroy() {
+        // Stop rendering
+        this.renderingActive = false;
+        
+        // Clear data
+        this.shapes.clear();
+        this.displayList.clear();
+        
+        // Delete WebGL resources
+        if (this.gl) {
+            // Delete buffers
+            if (this.buffers.vertex) this.gl.deleteBuffer(this.buffers.vertex);
+            if (this.buffers.color) this.gl.deleteBuffer(this.buffers.color);
+            
+            // Delete shader program
+            if (this.program) this.gl.deleteProgram(this.program);
+        }
+        
+        this.logToTerminal('WebGL renderer destroyed');
     }
 }
 
