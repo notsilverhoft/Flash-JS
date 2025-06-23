@@ -27,7 +27,7 @@
  * - NEW: Integrated ShapeTranslator for WebGL rendering support in Flash-JS repository
  * - NEW: Integrated DisplayTranslator for timeline display list management in Flash-JS repository
  * - FIXED: Complete WebGL integration with proper data flow to renderer
- * - RESTORED: Missing translation pipeline that was truncated
+ * - CRITICAL FIX: Parser initialization now ALWAYS happens for WebGL translation regardless of display mode
  */
 
 // Global variables for tag filtering
@@ -368,7 +368,8 @@ function parseTagData(tagData) {
   const output = [];
   const unknownTags = new Set();
   
-  // Initialize content parsers if needed
+  // CRITICAL FIX: Initialize ALL parsers UNCONDITIONALLY for WebGL translation
+  // Display modes should only control OUTPUT, not whether parsing happens
   let controlParser = null;
   let displayParser = null;
   let assetParser = null;
@@ -383,6 +384,47 @@ function parseTagData(tagData) {
   let morphParser = null;
   let scalingParser = null;
   
+  // ALWAYS initialize parsers for WebGL translation regardless of display mode
+  if (typeof ControlParsers !== 'undefined') {
+    controlParser = new ControlParsers();
+  }
+  if (typeof DisplayParsers !== 'undefined') {
+    displayParser = new DisplayParsers();
+  }
+  if (typeof AssetParsers !== 'undefined') {
+    assetParser = new AssetParsers();
+  }
+  if (typeof ShapeParsers !== 'undefined') {
+    shapeParser = new ShapeParsers();
+  }
+  if (typeof SpriteParsers !== 'undefined') {
+    spriteParser = new SpriteParsers();
+  }
+  if (typeof FontParsers !== 'undefined') {
+    fontParser = new FontParsers();
+  }
+  if (typeof TextParsers !== 'undefined') {
+    textParser = new TextParsers();
+  }
+  if (typeof BitmapParsers !== 'undefined') {
+    bitmapParser = new BitmapParsers();
+  }
+  if (typeof SoundParsers !== 'undefined') {
+    soundParser = new SoundParsers();
+  }
+  if (typeof ButtonParsers !== 'undefined') {
+    buttonParser = new ButtonParsers();
+  }
+  if (typeof VideoParsers !== 'undefined') {
+    videoParser = new VideoParsers();
+  }
+  if (typeof MorphParsers !== 'undefined') {
+    morphParser = new MorphParsers();
+  }
+  if (typeof ScalingParsers !== 'undefined') {
+    scalingParser = new ScalingParsers();
+  }
+  
   // Initialize ShapeTranslator for WebGL integration in Flash-JS repository
   let shapeTranslator = null;
   if (typeof ShapeTranslator !== 'undefined') {
@@ -395,56 +437,6 @@ function parseTagData(tagData) {
   if (typeof DisplayTranslator !== 'undefined') {
     displayTranslator = new DisplayTranslator(null, shapeTranslator);
     output.push("DisplayTranslator initialized for timeline display list management in Flash-JS repository");
-  }
-  
-  if (window.showContentParsing || window.showErrorsOnly) {
-    if (typeof ControlParsers !== 'undefined') {
-      controlParser = new ControlParsers();
-    }
-    if (typeof DisplayParsers !== 'undefined') {
-      displayParser = new DisplayParsers();
-    }
-    if (typeof AssetParsers !== 'undefined') {
-      assetParser = new AssetParsers();
-    }
-    if (typeof ShapeParsers !== 'undefined') {
-      shapeParser = new ShapeParsers();
-    }
-    if (typeof SpriteParsers !== 'undefined') {
-      spriteParser = new SpriteParsers();
-    }
-    if (typeof FontParsers !== 'undefined') {
-      fontParser = new FontParsers();
-    }
-    if (typeof TextParsers !== 'undefined') {
-      textParser = new TextParsers();
-    }
-    if (typeof BitmapParsers !== 'undefined') {
-      bitmapParser = new BitmapParsers();
-    }
-    if (typeof SoundParsers !== 'undefined') {
-      soundParser = new SoundParsers();
-    }
-    if (typeof ButtonParsers !== 'undefined') {
-      buttonParser = new ButtonParsers();
-    }
-    if (typeof VideoParsers !== 'undefined') {
-      videoParser = new VideoParsers();
-    }
-    if (typeof MorphParsers !== 'undefined') {
-      morphParser = new MorphParsers();
-    }
-    if (typeof ScalingParsers !== 'undefined') {
-      scalingParser = new ScalingParsers();
-    }
-  }
-  
-  // CRITICAL: Always initialize parsers for WebGL translation, even in header mode
-  if (!shapeParser && typeof ShapeParsers !== 'undefined') {
-    shapeParser = new ShapeParsers();
-  }
-  if (!displayParser && typeof DisplayParsers !== 'undefined') {
-    displayParser = new DisplayParsers();
   }
   
   // Different output format based on mode
@@ -504,25 +496,22 @@ function parseTagData(tagData) {
     const isScalingTag = scalingTags.has(tagHeader.type);
     const canBeParsed = isControlTag || isDisplayTag || isAssetTag || isActionScriptTag || isShapeTag || isSpriteTag || isFontTag || isTextTag || isBitmapTag || isSoundTag || isButtonTag || isVideoTag || isMorphTag || isScalingTag;
     
-    // Check tag type filter
+    // Check tag type filter for DISPLAY ONLY
     const passesFilter = shouldDisplayTagByFilter(tagHeader.type);
     
     if (!passesFilter) {
       skippedByFilter++;
-      // Move to next tag without processing
-      offset += tagHeader.headerSize + tagHeader.length;
-      tagIndex++;
-      continue;
-    }
-    
-    if (isUnknown) {
-      unknownTags.add(tagHeader.type);
+      // Continue processing for WebGL translation but skip output
+    } else {
+      if (isUnknown) {
+        unknownTags.add(tagHeader.type);
+      }
     }
     
     // Determine if we should display this tag based on mode
-    const shouldDisplay = window.showAllTags || isImportant || isUnknown;
+    const shouldDisplay = (window.showAllTags || isImportant || isUnknown) && passesFilter;
     
-    // CRITICAL: Process shape tags for WebGL translation in ALL modes
+    // CRITICAL: ALWAYS process shape tags for WebGL translation regardless of display mode
     if (isShapeTag && shapeParser && shapeTranslator && tagHeader.length >= 0) {
       try {
         const contentOffset = offset + tagHeader.headerSize;
@@ -535,8 +524,8 @@ function parseTagData(tagData) {
               window.translatedShapeData.set(parsedContent.data.shapeId, translatedGeometry);
               translatedShapeCount++;
               
+              // Add translation info for debugging only if in appropriate mode
               if (window.showContentParsing || window.showErrorsOnly) {
-                // Add translation info to parsed content for debugging in Parse.js terminal
                 parsedContent.data.webglTranslation = {
                   translated: true,
                   vertexCount: translatedGeometry.vertexCount,
@@ -547,7 +536,6 @@ function parseTagData(tagData) {
             }
           } catch (translationError) {
             if (window.showContentParsing || window.showErrorsOnly) {
-              // Add translation error to parsed content for debugging in Parse.js terminal
               parsedContent.data.webglTranslation = {
                 translated: false,
                 error: translationError.message
@@ -556,8 +544,8 @@ function parseTagData(tagData) {
           }
         }
         
-        // Display shape content if in content parsing mode
-        if (window.showContentParsing && canBeParsed) {
+        // Display shape content only if in appropriate mode and passes filter
+        if (window.showContentParsing && passesFilter) {
           output.push(`\nTag ${tagIndex}: ${parsedContent.tagType}`);
           output.push(`Description: ${parsedContent.description}`);
           output.push(`Length: ${tagHeader.length} bytes`);
@@ -573,16 +561,16 @@ function parseTagData(tagData) {
           
           parsedContentTags++;
         }
+        
       } catch (parseError) {
-        // Silent failure in non-content modes
-        if (window.showContentParsing || window.showErrorsOnly) {
+        if (window.showContentParsing && passesFilter) {
           output.push(`\nTag ${tagIndex}: ${tagName} (Parse Error)`);
           output.push(`ERROR: ${parseError.message}`);
         }
       }
     }
     
-    // CRITICAL: Process display tags for timeline translation in ALL modes
+    // CRITICAL: ALWAYS process display tags for WebGL translation regardless of display mode
     if (isDisplayTag && displayParser && displayTranslator && tagHeader.length >= 0) {
       try {
         const contentOffset = offset + tagHeader.headerSize;
@@ -605,8 +593,8 @@ function parseTagData(tagData) {
               window.translatedDisplayData.set(displayObject.depth || translatedDisplayCount, displayObject);
               translatedDisplayCount++;
               
+              // Add translation info for debugging only if in appropriate mode
               if (window.showContentParsing || window.showErrorsOnly) {
-                // Add translation info to parsed content for debugging in Parse.js terminal
                 parsedContent.data.webglDisplayTranslation = {
                   translated: true,
                   depth: displayObject.depth,
@@ -617,7 +605,6 @@ function parseTagData(tagData) {
             }
           } catch (translationError) {
             if (window.showContentParsing || window.showErrorsOnly) {
-              // Add translation error to parsed content for debugging in Parse.js terminal
               parsedContent.data.webglDisplayTranslation = {
                 translated: false,
                 error: translationError.message
@@ -626,8 +613,8 @@ function parseTagData(tagData) {
           }
         }
         
-        // Display content if in content parsing mode
-        if (window.showContentParsing && canBeParsed) {
+        // Display content only if in appropriate mode and passes filter
+        if (window.showContentParsing && passesFilter) {
           output.push(`\nTag ${tagIndex}: ${parsedContent.tagType}`);
           output.push(`Description: ${parsedContent.description}`);
           output.push(`Length: ${tagHeader.length} bytes`);
@@ -643,18 +630,19 @@ function parseTagData(tagData) {
           
           parsedContentTags++;
         }
+        
       } catch (parseError) {
-        // Silent failure in non-content modes
-        if (window.showContentParsing || window.showErrorsOnly) {
+        if (window.showContentParsing && passesFilter) {
           output.push(`\nTag ${tagIndex}: ${tagName} (Parse Error)`);
           output.push(`ERROR: ${parseError.message}`);
         }
       }
     }
     
+    // Handle other display modes for non-shape/display tags
     if (window.showContentParsing) {
-      // CONTENT PARSING MODE - Only show tags that can be parsed (already handled above for shapes/display)
-      if (canBeParsed && tagHeader.length >= 0 && !isShapeTag && !isDisplayTag) {
+      // CONTENT PARSING MODE - Only show tags that can be parsed
+      if (canBeParsed && tagHeader.length >= 0 && !isShapeTag && !isDisplayTag && passesFilter) {
         try {
           const contentOffset = offset + tagHeader.headerSize;
           let parsedContent = null;
@@ -703,7 +691,6 @@ function parseTagData(tagData) {
         } catch (contentError) {
           output.push(`\nTag ${tagIndex}: ${tagName} (Parse Error)`);
           output.push(`ERROR: ${contentError.message}`);
-          // Add stack trace for debugging
           if (contentError.stack) {
             output.push(`Stack trace: ${contentError.stack.substring(0, 300)}...`);
           }
@@ -720,7 +707,6 @@ function parseTagData(tagData) {
           tagDisplay += " [NEEDS PARSER]";
         }
         
-        // Add some hints about what type of parser this might need
         const tagTypeHints = {
           87: "Binary data parser needed"
         };
@@ -735,7 +721,7 @@ function parseTagData(tagData) {
       
     } else if (window.showErrorsOnly) {
       // ERROR-ONLY MODE - Only show tags that have parsers but encountered errors
-      if (canBeParsed && tagHeader.length >= 0) {
+      if (canBeParsed && tagHeader.length >= 0 && passesFilter) {
         try {
           const contentOffset = offset + tagHeader.headerSize;
           let parsedContent = null;
@@ -832,7 +818,7 @@ function parseTagData(tagData) {
       }
       
     } else {
-      // NORMAL TAG HEADER MODE - Display headers and continue processing shapes/display for WebGL
+      // NORMAL TAG HEADER MODE
       if (shouldDisplay) {
         let tagDisplay = `Tag ${tagIndex}: Type ${tagHeader.type} (${tagName}), Length ${tagHeader.length} bytes`;
         if (isUnknown) {
