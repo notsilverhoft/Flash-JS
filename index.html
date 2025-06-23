@@ -9,7 +9,7 @@
       background-color: #1e1e1e;
       color: #d4d4d4;
       padding: 20px;
-      max-width: 1200px;
+      max-width: 1400px;
       margin: 0 auto;
     }
 
@@ -47,13 +47,45 @@
 
     .terminals-container {
       display: grid;
-      grid-template-columns: 1fr;
+      grid-template-columns: 1fr 1fr;
       gap: 20px;
       margin-top: 20px;
     }
 
     .single-terminal {
       grid-column: 1 / -1;
+    }
+
+    .canvas-container {
+      margin: 20px 0;
+      text-align: center;
+      background-color: #2d2d2d;
+      padding: 20px;
+      border-radius: 5px;
+      border: 1px solid #444;
+    }
+
+    .render-canvas {
+      border: 2px solid #555;
+      border-radius: 5px;
+      background-color: #ffffff;
+      max-width: 100%;
+      height: auto;
+    }
+
+    .canvas-controls {
+      margin: 15px 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .canvas-info {
+      margin: 10px 0;
+      color: #cccccc;
+      font-size: 14px;
     }
 
     .upload-container {
@@ -94,6 +126,20 @@
 
     .button:hover {
       background-color: #1177bb;
+    }
+
+    .render-button {
+      background-color: #28a745;
+      color: white;
+    }
+
+    .render-button:hover {
+      background-color: #218838;
+    }
+
+    .render-button:disabled {
+      background-color: #6c757d;
+      cursor: not-allowed;
     }
 
     input[type="file"] {
@@ -205,10 +251,17 @@
       color: #a8d4a8;
       font-size: 14px;
     }
+
+    .render-pipeline-container {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+      margin-top: 20px;
+    }
   </style>
 </head>
 <body>
-  <h1>File Extension Viewer</h1>
+  <h1>Flash-JS SWF Renderer</h1>
   
   <div class="upload-container">
     <button class="button" id="uploadButton">SWF Here:</button>
@@ -222,7 +275,21 @@
 
   <!-- Translation Info Notice -->
   <div class="translation-info">
-    <strong>Automatic Translation:</strong> When using "Show Parsed Content Only" mode, Shape and Display tags are automatically translated to WebGL-ready format during parsing. Translation results appear inline with parsed content.
+    <strong>Complete Rendering Pipeline:</strong> Parse SWF → Translate to WebGL format → Render to Canvas. Shape and Display tags are automatically processed through the full pipeline when using "Show Parsed Content Only" mode.
+  </div>
+
+  <!-- Canvas Container -->
+  <div class="canvas-container">
+    <h3>WebGL Renderer Output</h3>
+    <canvas id="renderCanvas" class="render-canvas" width="800" height="600"></canvas>
+    <div class="canvas-controls">
+      <button class="button render-button" id="renderButton" disabled>Render Translated Data</button>
+      <button class="button" id="clearCanvasButton">Clear Canvas</button>
+      <button class="button" id="resizeCanvasButton">Resize Canvas</button>
+    </div>
+    <div class="canvas-info" id="canvasInfo">
+      Canvas: 800×600 | WebGL: Not initialized | Translated data: None available
+    </div>
   </div>
 
   <!-- Tag Type Filtering Controls -->
@@ -359,17 +426,24 @@
     <button class="button" id="applyFilterButton">Apply Filter</button>
   </div>
 
-  <div class="terminals-container" id="terminalsContainer">
-    <div class="single-terminal" id="singleTerminalContainer">
+  <div class="render-pipeline-container" id="pipelineContainer">
+    <div>
       <div class="terminal-header">
-        <h3 class="terminal-title">Terminal Output</h3>
+        <h3 class="terminal-title">Parser & Translator Output</h3>
       </div>
       <div class="terminal" id="terminalOutput">Waiting for file input...</div>
+    </div>
+    <div>
+      <div class="terminal-header">
+        <h3 class="terminal-title">Renderer Output</h3>
+      </div>
+      <div class="terminal" id="rendererOutput">WebGL renderer not initialized...</div>
     </div>
   </div>
 
   <script>
     const terminal = document.getElementById('terminalOutput');
+    const rendererOutput = document.getElementById('rendererOutput');
     const uploadButton = document.getElementById('uploadButton');
     const fileInput = document.getElementById('SWF-Input');
     const fileNameDisplay = document.getElementById('fileName');
@@ -381,8 +455,12 @@
     const categoryFilter = document.getElementById('categoryFilter');
     const specificTagFilter = document.getElementById('specificTagFilter');
     const applyFilterButton = document.getElementById('applyFilterButton');
-    const terminalsContainer = document.getElementById('terminalsContainer');
-    const singleTerminalContainer = document.getElementById('singleTerminalContainer');
+    const pipelineContainer = document.getElementById('pipelineContainer');
+    const renderCanvas = document.getElementById('renderCanvas');
+    const renderButton = document.getElementById('renderButton');
+    const clearCanvasButton = document.getElementById('clearCanvasButton');
+    const resizeCanvasButton = document.getElementById('resizeCanvasButton');
+    const canvasInfo = document.getElementById('canvasInfo');
 
     // Initialize global variables
     window.showAllTags = false;
@@ -391,12 +469,37 @@
     window.showErrorsOnly = false;
     window.tagTypeFilter = null;
     window.currentFileBuffer = null;
+    window.translatedDataStorage = null;
+    window.webglRenderer = null;
+
+    // Initialize WebGL renderer
+    try {
+      window.webglRenderer = new WebGLRenderer(renderCanvas);
+      rendererOutput.textContent = window.webglRenderer.getOutput();
+      updateCanvasInfo();
+    } catch (error) {
+      rendererOutput.textContent = `WebGL Renderer initialization failed: ${error.message}`;
+    }
 
     // Helper function to reset filter UI
     function resetFilterUI() {
       categoryFilter.value = 'all';
       specificTagFilter.value = 'all';
       window.tagTypeFilter = null;
+    }
+
+    // Helper function to update canvas info
+    function updateCanvasInfo() {
+      if (window.webglRenderer) {
+        const stats = window.webglRenderer.getStats();
+        const translatedDataStatus = window.translatedDataStorage ? 
+          `${Object.keys(window.translatedDataStorage).length} items` : 
+          'None available';
+        
+        canvasInfo.textContent = 
+          `Canvas: ${stats.canvasSize} | WebGL: ${stats.isInitialized ? 'Ready' : 'Not ready'} | ` +
+          `Translated data: ${translatedDataStatus} | Display objects: ${stats.displayListSize}`;
+      }
     }
 
     // Add button functionality
@@ -541,6 +644,60 @@
       reparseCurrentFile();
     });
 
+    // Canvas control functionality
+    renderButton.addEventListener('click', function() {
+      if (window.webglRenderer && window.translatedDataStorage) {
+        const success = window.webglRenderer.render(window.translatedDataStorage);
+        rendererOutput.textContent = window.webglRenderer.getOutput();
+        updateCanvasInfo();
+        
+        if (success) {
+          renderButton.textContent = 'Render Complete';
+          setTimeout(() => {
+            renderButton.textContent = 'Render Translated Data';
+          }, 2000);
+        }
+      }
+    });
+
+    clearCanvasButton.addEventListener('click', function() {
+      if (window.webglRenderer) {
+        window.webglRenderer.clear();
+        rendererOutput.textContent = window.webglRenderer.getOutput() + '\nCanvas cleared';
+        updateCanvasInfo();
+      }
+    });
+
+    resizeCanvasButton.addEventListener('click', function() {
+      if (window.webglRenderer) {
+        const newWidth = prompt('Enter new width:', renderCanvas.width);
+        const newHeight = prompt('Enter new height:', renderCanvas.height);
+        
+        if (newWidth && newHeight) {
+          window.webglRenderer.resize(parseInt(newWidth), parseInt(newHeight));
+          rendererOutput.textContent = window.webglRenderer.getOutput();
+          updateCanvasInfo();
+        }
+      }
+    });
+
+    // Store translated data for rendering
+    window.storeTranslatedData = function(translatedData) {
+      if (!window.translatedDataStorage) {
+        window.translatedDataStorage = {};
+      }
+      
+      // Store by timestamp to maintain order
+      const timestamp = Date.now();
+      window.translatedDataStorage[timestamp] = translatedData;
+      
+      // Enable render button
+      renderButton.disabled = false;
+      renderButton.textContent = 'Render Translated Data';
+      
+      updateCanvasInfo();
+    };
+
     // Reset specific tag when category changes
     categoryFilter.addEventListener('change', function() {
       if (categoryFilter.value !== 'all') {
@@ -603,12 +760,19 @@
         const arrayBuffer = await file.arrayBuffer();
         window.currentFileBuffer = arrayBuffer;
         
+        // Clear previous translated data
+        window.translatedDataStorage = null;
+        renderButton.disabled = true;
+        renderButton.textContent = 'No Translated Data';
+        
         const parsedInfo = parseSWFSignature(arrayBuffer);
         const tagInfo = parseSWFTags(arrayBuffer);
         
         if (terminal) {
           terminal.textContent = parsedInfo + '\n\n' + tagInfo;
         }
+        
+        updateCanvasInfo();
       } catch (err) {
         if (terminal) {
           terminal.textContent = 'Error reading SWF file: ' + err.message;
@@ -641,6 +805,9 @@
   <!-- Load translator modules -->
   <script src="JS/translators/ShapeParserTranslator.js"></script>
   <script src="JS/translators/DisplayParserTranslator.js"></script>
+  
+  <!-- Load renderer -->
+  <script src="JS/renderer/WebGLRenderer.js"></script>
   
   <!-- Load core parsing files -->
   <script src="JS/TagParse.js"></script>
