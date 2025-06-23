@@ -275,7 +275,7 @@
 
   <!-- Translation Info Notice -->
   <div class="translation-info">
-    <strong>Automatic Rendering Pipeline:</strong> Parse SWF → Translate to WebGL format → Auto-consume in Renderer → Click "Start Rendering" to display. The renderer automatically processes all translated data and queues UI updates properly.
+    <strong>Automatic Rendering Pipeline:</strong> Parse SWF → Translate to WebGL format → Auto-consume in Renderer → Click "Start Rendering" to display. The renderer automatically processes all[...]
   </div>
 
   <!-- Canvas Container -->
@@ -475,12 +475,22 @@
   <!-- Load Parse.js LAST as it runs commands from other files -->
   <script src="JS/Parse.js"></script>
 
+  <!-- FIXED: Define updateCanvasInfo BEFORE initializing WebGL renderer -->
+  <script>
+    // CRITICAL FIX: Define updateCanvasInfo globally before any initialization
+    window.updateCanvasInfo = function() {
+      // This is a placeholder that will be overridden by the full implementation
+      // but ensures the function exists during WebGL renderer initialization
+      console.log("updateCanvasInfo placeholder called during initialization");
+    };
+  </script>
+
   <!-- Initialize everything after all scripts are loaded -->
   <script>
     // Wait for DOM to be ready and ensure script loading order
     document.addEventListener('DOMContentLoaded', function() {
-      // Small delay to ensure all scripts are fully loaded
-      setTimeout(initializeApplication, 100);
+      // FIXED: Longer delay to ensure all scripts are fully loaded and parsed
+      setTimeout(initializeApplication, 200);
     });
     
     function initializeApplication() {
@@ -514,6 +524,21 @@
       window.translatedDataStorage = null;
       window.webglRenderer = null;
 
+      // FIXED: Define the complete updateCanvasInfo function NOW, before renderer initialization
+      window.updateCanvasInfo = function() {
+        if (window.webglRenderer) {
+          const stats = window.webglRenderer.getStats();
+          const translatedDataStatus = window.translatedDataStorage ? 
+            `${Object.keys(window.translatedDataStorage).length} items` : 
+            'None available';
+          
+          canvasInfo.textContent = 
+            `Canvas: ${stats.canvasSize} | WebGL: ${stats.isInitialized ? 'Ready' : 'Not ready'} | ` +
+            `Translated data: ${translatedDataStatus} | Display objects: ${stats.displayListSize} | ` +
+            `Auto-processed: ${stats.totalTranslatedItems || 0} items`;
+        }
+      };
+
       // Initialize WebGL renderer with better error handling and timing
       try {
         if (typeof WebGLRenderer !== 'undefined') {
@@ -521,7 +546,7 @@
           rendererOutput.textContent = window.webglRenderer.getOutput();
           updateCanvasInfo();
           
-          // CRITICAL FIX: Establish UI callback connection once both renderer and UI are ready
+          // FIXED: Establish UI callback connection once both renderer and UI are ready
           if (window.webglRenderer && typeof updateCanvasInfo === 'function') {
             window.webglRenderer.setUIUpdateCallback(updateCanvasInfo);
           }
@@ -539,21 +564,6 @@
         specificTagFilter.value = 'all';
         window.tagTypeFilter = null;
       }
-
-      // Helper function to update canvas info - now global for auto-updates
-      window.updateCanvasInfo = function() {
-        if (window.webglRenderer) {
-          const stats = window.webglRenderer.getStats();
-          const translatedDataStatus = window.translatedDataStorage ? 
-            `${Object.keys(window.translatedDataStorage).length} items` : 
-            'None available';
-          
-          canvasInfo.textContent = 
-            `Canvas: ${stats.canvasSize} | WebGL: ${stats.isInitialized ? 'Ready' : 'Not ready'} | ` +
-            `Translated data: ${translatedDataStatus} | Display objects: ${stats.displayListSize} | ` +
-            `Auto-processed: ${stats.totalTranslatedItems || 0} items`;
-        }
-      };
 
       // Add button functionality
       uploadButton.addEventListener('click', function() {
