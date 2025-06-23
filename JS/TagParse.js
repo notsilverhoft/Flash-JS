@@ -26,6 +26,7 @@
  * - ENHANCED: Added AS3Parsers integration for comprehensive ActionScript 3.0 support
  * - NEW: Integrated ShapeTranslator for WebGL rendering support in Flash-JS repository
  * - NEW: Integrated DisplayTranslator for timeline display list management in Flash-JS repository
+ * - FIXED: ShapeTranslator integration now works in ALL parsing modes
  */
 
 // Global variables for tag filtering
@@ -381,31 +382,41 @@ function parseTagData(tagData) {
   let morphParser = null;
   let scalingParser = null;
   
-  // Initialize ShapeTranslator for WebGL integration in Flash-JS repository
+  // Initialize ShapeTranslator for WebGL integration in Flash-JS repository - ALWAYS initialize
   let shapeTranslator = null;
   if (typeof ShapeTranslator !== 'undefined') {
     shapeTranslator = new ShapeTranslator();
     output.push("ShapeTranslator initialized for WebGL integration in Flash-JS repository");
   }
   
-  // Initialize DisplayTranslator for timeline display list management in Flash-JS repository
+  // Initialize DisplayTranslator for timeline display list management in Flash-JS repository - ALWAYS initialize
   let displayTranslator = null;
   if (typeof DisplayTranslator !== 'undefined') {
     displayTranslator = new DisplayTranslator(null, shapeTranslator);
     output.push("DisplayTranslator initialized for timeline display list management in Flash-JS repository");
   }
   
+  // ALWAYS initialize ShapeParsers when ShapeTranslator is available
+  if (shapeTranslator && typeof ShapeParsers !== 'undefined') {
+    shapeParser = new ShapeParsers();
+  }
+  
+  // ALWAYS initialize DisplayParsers when DisplayTranslator is available
+  if (displayTranslator && typeof DisplayParsers !== 'undefined') {
+    displayParser = new DisplayParsers();
+  }
+  
   if (window.showContentParsing || window.showErrorsOnly) {
     if (typeof ControlParsers !== 'undefined') {
       controlParser = new ControlParsers();
     }
-    if (typeof DisplayParsers !== 'undefined') {
+    if (typeof DisplayParsers !== 'undefined' && !displayParser) {
       displayParser = new DisplayParsers();
     }
     if (typeof AssetParsers !== 'undefined') {
       assetParser = new AssetParsers();
     }
-    if (typeof ShapeParsers !== 'undefined') {
+    if (typeof ShapeParsers !== 'undefined' && !shapeParser) {
       shapeParser = new ShapeParsers();
     }
     if (typeof SpriteParsers !== 'undefined') {
@@ -512,6 +523,90 @@ function parseTagData(tagData) {
     // Determine if we should display this tag based on mode
     const shouldDisplay = window.showAllTags || isImportant || isUnknown;
     
+    // CRITICAL FIX: Process shape tags for WebGL translation in ALL modes, not just content parsing
+    if (isShapeTag && shapeParser && shapeTranslator && tagHeader.length >= 0) {
+      try {
+        const contentOffset = offset + tagHeader.headerSize;
+        const parsedContent = shapeParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
+        
+        if (parsedContent && parsedContent.data && parsedContent.data.shapeId !== undefined) {
+          try {
+            const translatedGeometry = shapeTranslator.translateShape(parsedContent.data);
+            if (translatedGeometry) {
+              window.translatedShapeData.set(parsedContent.data.shapeId, translatedGeometry);
+              translatedShapeCount++;
+              
+              // Add translation info to parsed content for debugging in Parse.js terminal
+              parsedContent.data.webglTranslation = {
+                translated: true,
+                vertexCount: translatedGeometry.vertexCount,
+                triangleCount: translatedGeometry.triangleCount,
+                method: translatedGeometry.method
+              };
+            }
+          } catch (translationError) {
+            // Add translation error to parsed content for debugging in Parse.js terminal
+            if (parsedContent.data) {
+              parsedContent.data.webglTranslation = {
+                translated: false,
+                error: translationError.message
+              };
+            }
+          }
+        }
+      } catch (parseError) {
+        // Shape parsing failed - this is expected for some malformed data
+      }
+    }
+    
+    // CRITICAL FIX: Process display tags for timeline translation in ALL modes, not just content parsing
+    if (isDisplayTag && displayParser && displayTranslator && tagHeader.length >= 0) {
+      try {
+        const contentOffset = offset + tagHeader.headerSize;
+        const parsedContent = displayParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
+        
+        if (parsedContent && parsedContent.data) {
+          try {
+            let displayObject = null;
+            
+            // Process different display tag types
+            if (tagHeader.type === 4 || tagHeader.type === 26 || tagHeader.type === 70) { // PlaceObject variants
+              displayObject = displayTranslator.translatePlaceObject(parsedContent.data, window.translatedShapeData);
+            } else if (tagHeader.type === 5 || tagHeader.type === 28) { // RemoveObject variants
+              displayObject = displayTranslator.translateRemoveObject(parsedContent.data);
+            } else if (tagHeader.type === 1) { // ShowFrame
+              displayObject = displayTranslator.translateShowFrame(parsedContent.data);
+            }
+            
+            if (displayObject) {
+              window.translatedDisplayData.set(displayObject.depth || translatedDisplayCount, displayObject);
+              translatedDisplayCount++;
+              
+              // Add translation info to parsed content for debugging in Parse.js terminal
+              if (parsedContent.data) {
+                parsedContent.data.webglDisplayTranslation = {
+                  translated: true,
+                  depth: displayObject.depth,
+                  characterId: displayObject.characterId,
+                  method: 'timeline_display_translation'
+                };
+              }
+            }
+          } catch (translationError) {
+            // Add translation error to parsed content for debugging in Parse.js terminal
+            if (parsedContent.data) {
+              parsedContent.data.webglDisplayTranslation = {
+                translated: false,
+                error: translationError.message
+              };
+            }
+          }
+        }
+      } catch (parseError) {
+        // Display parsing failed - this is expected for some malformed data
+      }
+    }
+    
     if (window.showContentParsing) {
       // CONTENT PARSING MODE - Only show tags that can be parsed
       if (canBeParsed && tagHeader.length >= 0) {
@@ -523,70 +618,10 @@ function parseTagData(tagData) {
             parsedContent = controlParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
           } else if (displayParser && isDisplayTag) {
             parsedContent = displayParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
-            
-            // NEW: Integrate DisplayTranslator for timeline display list management in Flash-JS repository
-            if (parsedContent && parsedContent.data && displayTranslator) {
-              try {
-                let displayObject = null;
-                
-                // Process different display tag types
-                if (tagHeader.type === 4 || tagHeader.type === 26 || tagHeader.type === 70) { // PlaceObject variants
-                  displayObject = displayTranslator.translatePlaceObject(parsedContent.data, window.translatedShapeData);
-                } else if (tagHeader.type === 5 || tagHeader.type === 28) { // RemoveObject variants
-                  displayObject = displayTranslator.translateRemoveObject(parsedContent.data);
-                } else if (tagHeader.type === 1) { // ShowFrame
-                  displayObject = displayTranslator.translateShowFrame(parsedContent.data);
-                }
-                
-                if (displayObject) {
-                  window.translatedDisplayData.set(displayObject.depth || translatedDisplayCount, displayObject);
-                  translatedDisplayCount++;
-                  
-                  // Add translation info to parsed content for debugging in Parse.js terminal
-                  parsedContent.data.webglDisplayTranslation = {
-                    translated: true,
-                    depth: displayObject.depth,
-                    characterId: displayObject.characterId,
-                    method: 'timeline_display_translation'
-                  };
-                }
-              } catch (translationError) {
-                // Add translation error to parsed content for debugging in Parse.js terminal
-                parsedContent.data.webglDisplayTranslation = {
-                  translated: false,
-                  error: translationError.message
-                };
-              }
-            }
           } else if (assetParser && (isAssetTag || isActionScriptTag)) {
             parsedContent = assetParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
           } else if (shapeParser && isShapeTag) {
             parsedContent = shapeParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
-            
-            // NEW: Integrate ShapeTranslator for WebGL rendering in Flash-JS repository
-            if (parsedContent && parsedContent.data && shapeTranslator) {
-              try {
-                const translatedGeometry = shapeTranslator.translateShape(parsedContent.data);
-                if (translatedGeometry && parsedContent.data.shapeId !== undefined) {
-                  window.translatedShapeData.set(parsedContent.data.shapeId, translatedGeometry);
-                  translatedShapeCount++;
-                  
-                  // Add translation info to parsed content for debugging in Parse.js terminal
-                  parsedContent.data.webglTranslation = {
-                    translated: true,
-                    vertexCount: translatedGeometry.vertexCount,
-                    triangleCount: translatedGeometry.triangleCount,
-                    method: translatedGeometry.method
-                  };
-                }
-              } catch (translationError) {
-                // Add translation error to parsed content for debugging in Parse.js terminal
-                parsedContent.data.webglTranslation = {
-                  translated: false,
-                  error: translationError.message
-                };
-              }
-            }
           } else if (spriteParser && isSpriteTag) {
             parsedContent = spriteParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
           } else if (fontParser && isFontTag) {
@@ -729,56 +764,10 @@ function parseTagData(tagData) {
             parsedContent = controlParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
           } else if (displayParser && isDisplayTag) {
             parsedContent = displayParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
-            
-            // NEW: Integrate DisplayTranslator for timeline display list management in Flash-JS repository (error mode)
-            if (parsedContent && parsedContent.data && displayTranslator) {
-              try {
-                let displayObject = null;
-                
-                // Process different display tag types
-                if (tagHeader.type === 4 || tagHeader.type === 26 || tagHeader.type === 70) { // PlaceObject variants
-                  displayObject = displayTranslator.translatePlaceObject(parsedContent.data, window.translatedShapeData);
-                } else if (tagHeader.type === 5 || tagHeader.type === 28) { // RemoveObject variants
-                  displayObject = displayTranslator.translateRemoveObject(parsedContent.data);
-                } else if (tagHeader.type === 1) { // ShowFrame
-                  displayObject = displayTranslator.translateShowFrame(parsedContent.data);
-                }
-                
-                if (displayObject) {
-                  window.translatedDisplayData.set(displayObject.depth || translatedDisplayCount, displayObject);
-                  translatedDisplayCount++;
-                }
-              } catch (translationError) {
-                // Display translation error is also an error condition
-                parsedContent.data.webglDisplayTranslation = {
-                  translated: false,
-                  error: translationError.message
-                };
-                hasError = true;
-              }
-            }
           } else if (assetParser && (isAssetTag || isActionScriptTag)) {
             parsedContent = assetParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
           } else if (shapeParser && isShapeTag) {
             parsedContent = shapeParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
-            
-            // NEW: Integrate ShapeTranslator for WebGL rendering in Flash-JS repository (error mode)
-            if (parsedContent && parsedContent.data && shapeTranslator) {
-              try {
-                const translatedGeometry = shapeTranslator.translateShape(parsedContent.data);
-                if (translatedGeometry && parsedContent.data.shapeId !== undefined) {
-                  window.translatedShapeData.set(parsedContent.data.shapeId, translatedGeometry);
-                  translatedShapeCount++;
-                }
-              } catch (translationError) {
-                // Shape translation error is also an error condition
-                parsedContent.data.webglTranslation = {
-                  translated: false,
-                  error: translationError.message
-                };
-                hasError = true;
-              }
-            }
           } else if (spriteParser && isSpriteTag) {
             parsedContent = spriteParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
           } else if (fontParser && isFontTag) {
@@ -870,60 +859,6 @@ function parseTagData(tagData) {
         }
         output.push(tagDisplay);
         displayedTags++;
-      }
-      
-      // NEW: Process shape tags for WebGL translation even in header mode
-      if (isShapeTag && shapeParser && shapeTranslator && tagHeader.length >= 0) {
-        try {
-          const contentOffset = offset + tagHeader.headerSize;
-          const parsedContent = shapeParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
-          
-          if (parsedContent && parsedContent.data && parsedContent.data.shapeId !== undefined) {
-            try {
-              const translatedGeometry = shapeTranslator.translateShape(parsedContent.data);
-              if (translatedGeometry) {
-                window.translatedShapeData.set(parsedContent.data.shapeId, translatedGeometry);
-                translatedShapeCount++;
-              }
-            } catch (translationError) {
-              // Silent failure in header mode - translation errors don't affect header display
-            }
-          }
-        } catch (parseError) {
-          // Silent failure in header mode - parse errors don't affect header display
-        }
-      }
-      
-      // NEW: Process display tags for timeline translation even in header mode
-      if (isDisplayTag && displayParser && displayTranslator && tagHeader.length >= 0) {
-        try {
-          const contentOffset = offset + tagHeader.headerSize;
-          const parsedContent = displayParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
-          
-          if (parsedContent && parsedContent.data) {
-            try {
-              let displayObject = null;
-              
-              // Process different display tag types
-              if (tagHeader.type === 4 || tagHeader.type === 26 || tagHeader.type === 70) { // PlaceObject variants
-                displayObject = displayTranslator.translatePlaceObject(parsedContent.data, window.translatedShapeData);
-              } else if (tagHeader.type === 5 || tagHeader.type === 28) { // RemoveObject variants
-                displayObject = displayTranslator.translateRemoveObject(parsedContent.data);
-              } else if (tagHeader.type === 1) { // ShowFrame
-                displayObject = displayTranslator.translateShowFrame(parsedContent.data);
-              }
-              
-              if (displayObject) {
-                window.translatedDisplayData.set(displayObject.depth || translatedDisplayCount, displayObject);
-                translatedDisplayCount++;
-              }
-            } catch (translationError) {
-              // Silent failure in header mode - translation errors don't affect header display
-            }
-          }
-        } catch (parseError) {
-          // Silent failure in header mode - parse errors don't affect header display
-        }
       }
     }
     
