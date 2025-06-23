@@ -183,6 +183,42 @@ class DisplayTranslator {
     }
 
     /**
+     * Register for tag data from Parse.js - NEW method to coordinate with main Parse.js flow
+     */
+    registerTagDataFromParser(parsedTag, translatedShapeData) {
+        if (!parsedTag || !parsedTag.data) {
+            return null;
+        }
+        
+        try {
+            const tagType = parsedTag.tagType || '';
+            
+            // Handle display-specific tags
+            if (tagType.includes('PlaceObject')) {
+                const displayObject = this.translatePlaceObject(parsedTag.data, translatedShapeData);
+                if (displayObject) {
+                    this.logToTerminal(`Registered PlaceObject from Parse.js: Character ${displayObject.characterId} at depth ${displayObject.depth}`);
+                    return displayObject;
+                }
+            } else if (tagType.includes('RemoveObject')) {
+                const removed = this.translateRemoveObject(parsedTag.data);
+                if (removed) {
+                    this.logToTerminal(`Registered RemoveObject from Parse.js at depth ${parsedTag.data.depth}`);
+                }
+                return removed;
+            } else if (tagType === 'ShowFrame') {
+                const frameState = this.translateShowFrame(parsedTag.data);
+                this.logToTerminal(`Registered ShowFrame from Parse.js: Frame ${this.currentFrame}`);
+                return frameState;
+            }
+        } catch (error) {
+            this.logToTerminal(`Error registering tag data from Parse.js: ${error.message}`);
+        }
+        
+        return null;
+    }
+
+    /**
      * Parse tag header - duplicated from TagParse.js for direct SWF parsing
      */
     parseTagHeader(data, offset) {
