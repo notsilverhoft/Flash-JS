@@ -26,6 +26,7 @@
  * - ENHANCED: Added AS3Parsers integration for comprehensive ActionScript 3.0 support
  * - ENHANCED: Automatic translator implementation for real-time translation
  * - ENHANCED: WebGL renderer integration for complete rendering pipeline
+ * - FIXED: Syntax error in canBeParsed variable definition that was breaking script loading
  */
 
 // Global variables for tag filtering
