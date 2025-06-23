@@ -27,9 +27,11 @@ class WebGLRenderer {
     this.renderingInProgress = false;
     this.totalTranslatedItems = 0;
     
-    // UI update handling
+    // UI update handling - FIXED: Better timing management
     this.pendingUIUpdates = [];
     this.uiUpdateCallback = null;
+    this.uiReadyCheckCount = 0;
+    this.maxUIReadyChecks = 50; // Maximum attempts to find updateCanvasInfo
     
     // WebGL state
     this.vertexBuffer = null;
@@ -82,6 +84,9 @@ class WebGLRenderer {
       // Setup automatic data consumption
       this.setupAutoDataConsumption();
       
+      // FIXED: Start UI ready checking with proper timing
+      this.startUIReadyCheck();
+      
     } catch (error) {
       this.output.push(`Initialization failed: ${error.message}`);
       this.isInitialized = false;
@@ -123,18 +128,65 @@ class WebGLRenderer {
     }
   }
 
-  // ==================== UI UPDATE HANDLING ====================
+  // ==================== UI UPDATE HANDLING - FIXED ====================
+
+  startUIReadyCheck() {
+    // Start checking for updateCanvasInfo availability with proper timing
+    this.checkUIReady();
+  }
+
+  checkUIReady() {
+    this.uiReadyCheckCount++;
+    
+    // Try to find updateCanvasInfo function
+    if (typeof updateCanvasInfo === 'function') {
+      this.output.push("UI callback connection established successfully");
+      this.setUIUpdateCallback(updateCanvasInfo);
+      return true;
+    } else if (typeof window.updateCanvasInfo === 'function') {
+      this.output.push("UI callback connection established via window object");
+      this.setUIUpdateCallback(window.updateCanvasInfo);
+      return true;
+    }
+    
+    // If not found and haven't exceeded max attempts, try again
+    if (this.uiReadyCheckCount < this.maxUIReadyChecks) {
+      setTimeout(() => this.checkUIReady(), 100);
+      return false;
+    } else {
+      this.output.push("UI callback connection timeout - updateCanvasInfo not found");
+      this.output.push("UI updates will be queued until callback is manually set");
+      return false;
+    }
+  }
 
   requestUIUpdate() {
-    // Try to call updateCanvasInfo if it's available
-    if (typeof updateCanvasInfo === 'function') {
-      updateCanvasInfo();
+    // FIXED: Safe UI update handling with proper error checking
+    if (this.uiUpdateCallback && typeof this.uiUpdateCallback === 'function') {
+      try {
+        this.uiUpdateCallback();
+      } catch (error) {
+        this.output.push(`UI update error: ${error.message}`);
+      }
+    } else if (typeof updateCanvasInfo === 'function') {
+      try {
+        updateCanvasInfo();
+      } catch (error) {
+        this.output.push(`Direct UI update error: ${error.message}`);
+      }
     } else if (typeof window.updateCanvasInfo === 'function') {
-      window.updateCanvasInfo();
+      try {
+        window.updateCanvasInfo();
+      } catch (error) {
+        this.output.push(`Window UI update error: ${error.message}`);
+      }
     } else {
       // Queue the update for when the UI is ready
       this.pendingUIUpdates.push(Date.now());
-      this.output.push("UI update queued - updateCanvasInfo not yet available");
+      // Don't spam the output with these messages
+      if (this.pendingUIUpdates.length === 1) {
+        this.output.push("UI update queued - updateCanvasInfo not yet available");
+      }
     }
   }
 
@@ -145,7 +197,13 @@ class WebGLRenderer {
     if (this.pendingUIUpdates.length > 0) {
       this.output.push(`Processing ${this.pendingUIUpdates.length} pending UI updates`);
       this.pendingUIUpdates = [];
-      callback();
+      
+      // Call the callback safely
+      try {
+        callback();
+      } catch (error) {
+        this.output.push(`UI callback error: ${error.message}`);
+      }
     }
   }
 
@@ -937,7 +995,9 @@ class WebGLRenderer {
       autoRenderEnabled: this.autoRenderEnabled,
       totalTranslatedItems: this.totalTranslatedItems,
       queuedItems: this.translatedDataQueue.length,
-      pendingUIUpdates: this.pendingUIUpdates.length
+      pendingUIUpdates: this.pendingUIUpdates.length,
+      uiCallbackReady: this.uiUpdateCallback !== null,
+      uiReadyCheckCount: this.uiReadyCheckCount
     };
   }
 
