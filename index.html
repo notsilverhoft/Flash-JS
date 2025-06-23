@@ -9,7 +9,7 @@
       background-color: #1e1e1e;
       color: #d4d4d4;
       padding: 20px;
-      max-width: 900px;
+      max-width: 1200px;
       margin: 0 auto;
     }
 
@@ -43,6 +43,17 @@
       margin: 0;
       color: #ffffff;
       font-size: 16px;
+    }
+
+    .terminals-container {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+      margin-top: 20px;
+    }
+
+    .single-terminal {
+      grid-column: 1 / -1;
     }
 
     .upload-container {
@@ -162,6 +173,23 @@
       background-color: #7d3c98;
     }
 
+    .translator-button {
+      background-color: #17a2b8;
+      color: white;
+    }
+
+    .translator-button:hover {
+      background-color: #138496;
+    }
+
+    .translator-button.active {
+      background-color: #20c997;
+    }
+
+    .translator-button.active:hover {
+      background-color: #1abc9c;
+    }
+
     select {
       background-color: #333;
       color: #d4d4d4;
@@ -184,6 +212,18 @@
     .hidden {
       display: none;
     }
+
+    .translator-controls {
+      margin: 10px 0;
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 10px;
+      background-color: #2d2d2d;
+      padding: 10px;
+      border-radius: 5px;
+      border: 1px solid #444;
+    }
   </style>
 </head>
 <body>
@@ -197,6 +237,7 @@
     <button class="button content-button" id="contentButton">Show Parsed Content Only</button>
     <button class="button unparsed-button" id="unparsedButton">Show Unparsed Tags</button>
     <button class="button error-button" id="errorButton">Show Parser Errors</button>
+    <button class="button translator-button" id="translatorButton">Show Translator Output</button>
   </div>
 
   <!-- Tag Type Filtering Controls -->
@@ -333,10 +374,31 @@
     <button class="button" id="applyFilterButton">Apply Filter</button>
   </div>
 
-  <div class="terminal-header">
-    <h3 class="terminal-title">Terminal Output</h3>
+  <!-- Translator Controls -->
+  <div class="translator-controls hidden" id="translatorControls">
+    <span class="filter-label">Translator Options:</span>
+    
+    <div class="filter-group">
+      <label class="filter-label">Translate:</label>
+      <select id="translatorType">
+        <option value="shape">Shape Data</option>
+        <option value="display">Display Data</option>
+        <option value="both">Both Types</option>
+      </select>
+    </div>
+
+    <button class="button" id="runTranslatorButton">Run Translation</button>
+    <button class="button" id="clearTranslatorButton">Clear Output</button>
   </div>
-  <div class="terminal" id="terminalOutput">Waiting for file input...</div>
+
+  <div class="terminals-container" id="terminalsContainer">
+    <div class="single-terminal" id="singleTerminalContainer">
+      <div class="terminal-header">
+        <h3 class="terminal-title">Terminal Output</h3>
+      </div>
+      <div class="terminal" id="terminalOutput">Waiting for file input...</div>
+    </div>
+  </div>
 
   <script>
     const terminal = document.getElementById('terminalOutput');
@@ -347,23 +409,63 @@
     const contentButton = document.getElementById('contentButton');
     const unparsedButton = document.getElementById('unparsedButton');
     const errorButton = document.getElementById('errorButton');
+    const translatorButton = document.getElementById('translatorButton');
     const filterContainer = document.getElementById('filterContainer');
+    const translatorControls = document.getElementById('translatorControls');
     const categoryFilter = document.getElementById('categoryFilter');
     const specificTagFilter = document.getElementById('specificTagFilter');
     const applyFilterButton = document.getElementById('applyFilterButton');
+    const translatorType = document.getElementById('translatorType');
+    const runTranslatorButton = document.getElementById('runTranslatorButton');
+    const clearTranslatorButton = document.getElementById('clearTranslatorButton');
+    const terminalsContainer = document.getElementById('terminalsContainer');
+    const singleTerminalContainer = document.getElementById('singleTerminalContainer');
 
     // Initialize global variables
     window.showAllTags = false;
     window.showContentParsing = false;
     window.showUnparsedOnly = false;
     window.showErrorsOnly = false;
+    window.showTranslatorOutput = false;
     window.tagTypeFilter = null;
+    window.currentFileBuffer = null;
+    window.currentParsedData = [];
 
     // Helper function to reset filter UI
     function resetFilterUI() {
       categoryFilter.value = 'all';
       specificTagFilter.value = 'all';
       window.tagTypeFilter = null;
+    }
+
+    // Helper function to setup dual terminals
+    function setupDualTerminals() {
+      terminalsContainer.innerHTML = `
+        <div>
+          <div class="terminal-header">
+            <h3 class="terminal-title">Parser Output</h3>
+          </div>
+          <div class="terminal" id="terminalOutput">Waiting for file input...</div>
+        </div>
+        <div>
+          <div class="terminal-header">
+            <h3 class="terminal-title">Translator Output</h3>
+          </div>
+          <div class="terminal" id="translatorOutput">Run translation to see output...</div>
+        </div>
+      `;
+    }
+
+    // Helper function to setup single terminal
+    function setupSingleTerminal() {
+      terminalsContainer.innerHTML = `
+        <div class="single-terminal">
+          <div class="terminal-header">
+            <h3 class="terminal-title">Terminal Output</h3>
+          </div>
+          <div class="terminal" id="terminalOutput">Waiting for file input...</div>
+        </div>
+      `;
     }
 
     // Add button functionality
@@ -393,11 +495,16 @@
         toggleButton.style.display = 'none';
         unparsedButton.style.display = 'none';
         errorButton.style.display = 'none';
+        translatorButton.style.display = 'none';
         // Reset other modes
         window.showUnparsedOnly = false;
         window.showErrorsOnly = false;
+        window.showTranslatorOutput = false;
         unparsedButton.classList.remove('active');
         errorButton.classList.remove('active');
+        translatorButton.classList.remove('active');
+        translatorControls.classList.add('hidden');
+        setupSingleTerminal();
       } else {
         contentButton.textContent = 'Show Parsed Content Only';
         contentButton.classList.remove('active');
@@ -409,6 +516,7 @@
         toggleButton.style.display = 'inline-block';
         unparsedButton.style.display = 'inline-block';
         errorButton.style.display = 'inline-block';
+        translatorButton.style.display = 'inline-block';
       }
       
       // Re-parse if file is loaded
@@ -426,14 +534,19 @@
         toggleButton.style.display = 'none';
         contentButton.style.display = 'none';
         errorButton.style.display = 'none';
+        translatorButton.style.display = 'none';
         filterContainer.classList.add('hidden');
+        translatorControls.classList.add('hidden');
         // Reset filter when entering unparsed mode
         resetFilterUI();
         // Reset other modes
         window.showContentParsing = false;
         window.showErrorsOnly = false;
+        window.showTranslatorOutput = false;
         contentButton.classList.remove('active');
         errorButton.classList.remove('active');
+        translatorButton.classList.remove('active');
+        setupSingleTerminal();
       } else {
         unparsedButton.textContent = 'Show Unparsed Tags';
         unparsedButton.classList.remove('active');
@@ -441,6 +554,7 @@
         toggleButton.style.display = 'inline-block';
         contentButton.style.display = 'inline-block';
         errorButton.style.display = 'inline-block';
+        translatorButton.style.display = 'inline-block';
       }
       
       // Re-parse if file is loaded
@@ -460,11 +574,16 @@
         toggleButton.style.display = 'none';
         contentButton.style.display = 'none';
         unparsedButton.style.display = 'none';
+        translatorButton.style.display = 'none';
+        translatorControls.classList.add('hidden');
         // Reset other modes
         window.showContentParsing = false;
         window.showUnparsedOnly = false;
+        window.showTranslatorOutput = false;
         contentButton.classList.remove('active');
         unparsedButton.classList.remove('active');
+        translatorButton.classList.remove('active');
+        setupSingleTerminal();
       } else {
         errorButton.textContent = 'Show Parser Errors';
         errorButton.classList.remove('active');
@@ -476,10 +595,53 @@
         toggleButton.style.display = 'inline-block';
         contentButton.style.display = 'inline-block';
         unparsedButton.style.display = 'inline-block';
+        translatorButton.style.display = 'inline-block';
       }
       
       // Re-parse if file is loaded
       reparseCurrentFile();
+    });
+
+    // Translator button functionality
+    translatorButton.addEventListener('click', function() {
+      window.showTranslatorOutput = !window.showTranslatorOutput;
+      
+      if (window.showTranslatorOutput) {
+        translatorButton.textContent = 'Hide Translator Output';
+        translatorButton.classList.add('active');
+        // Show translator controls
+        translatorControls.classList.remove('hidden');
+        // Hide other mode buttons
+        toggleButton.style.display = 'none';
+        contentButton.style.display = 'none';
+        unparsedButton.style.display = 'none';
+        errorButton.style.display = 'none';
+        filterContainer.classList.add('hidden');
+        // Reset other modes
+        window.showContentParsing = false;
+        window.showUnparsedOnly = false;
+        window.showErrorsOnly = false;
+        contentButton.classList.remove('active');
+        unparsedButton.classList.remove('active');
+        errorButton.classList.remove('active');
+        resetFilterUI();
+        setupDualTerminals();
+        // Re-parse to populate parser terminal
+        reparseCurrentFile();
+      } else {
+        translatorButton.textContent = 'Show Translator Output';
+        translatorButton.classList.remove('active');
+        // Hide translator controls
+        translatorControls.classList.add('hidden');
+        // Show other buttons
+        toggleButton.style.display = 'inline-block';
+        contentButton.style.display = 'inline-block';
+        unparsedButton.style.display = 'inline-block';
+        errorButton.style.display = 'inline-block';
+        setupSingleTerminal();
+        // Re-parse if file is loaded
+        reparseCurrentFile();
+      }
     });
 
     // Filter functionality
@@ -508,6 +670,26 @@
       reparseCurrentFile();
     });
 
+    // Translator functionality
+    runTranslatorButton.addEventListener('click', function() {
+      if (!window.currentFileBuffer) {
+        const translatorOutput = document.getElementById('translatorOutput');
+        if (translatorOutput) {
+          translatorOutput.textContent = 'No file loaded for translation.';
+        }
+        return;
+      }
+
+      runTranslation();
+    });
+
+    clearTranslatorButton.addEventListener('click', function() {
+      const translatorOutput = document.getElementById('translatorOutput');
+      if (translatorOutput) {
+        translatorOutput.textContent = 'Translation output cleared.';
+      }
+    });
+
     // Reset specific tag when category changes
     categoryFilter.addEventListener('change', function() {
       if (categoryFilter.value !== 'all') {
@@ -525,20 +707,140 @@
     // Function to reparse current file
     function reparseCurrentFile() {
       const fileInput = document.getElementById('SWF-Input');
-      if (fileInput.files[0]) {
-        const file = fileInput.files[0];
-        file.arrayBuffer().then(arrayBuffer => {
-          const parsedInfo = parseSWFSignature(arrayBuffer);
-          const tagInfo = parseSWFTags(arrayBuffer);
+      if (fileInput.files[0] && window.currentFileBuffer) {
+        const parsedInfo = parseSWFSignature(window.currentFileBuffer);
+        const tagInfo = parseSWFTags(window.currentFileBuffer);
+        const terminal = document.getElementById('terminalOutput');
+        if (terminal) {
           terminal.textContent = parsedInfo + '\n\n' + tagInfo;
-        });
+        }
       }
+    }
+
+    // Function to run translation
+    function runTranslation() {
+      if (!window.currentFileBuffer) return;
+
+      const translatorOutput = document.getElementById('translatorOutput');
+      if (!translatorOutput) return;
+
+      const typeToTranslate = translatorType.value;
+      let output = [];
+
+      output.push("Translation Process Started:");
+      output.push("============================");
+
+      try {
+        // For demo purposes, create sample data to translate
+        // In a real implementation, this would use actual parsed data
+        
+        if (typeToTranslate === 'shape' || typeToTranslate === 'both') {
+          output.push("\n--- Shape Translation ---");
+          
+          // Sample shape data (this would come from actual parsing)
+          const sampleShapeData = {
+            tagType: "DefineShape2",
+            description: "Defines a vector shape with color transforms",
+            data: {
+              shapeId: 1,
+              bounds: { xMin: 0, yMin: 0, xMax: 1000, yMax: 800 },
+              version: 2,
+              fillStyles: {
+                count: 1,
+                styles: [{
+                  type: "solid",
+                  color: { r: 255, g: 0, b: 0, a: 255 }
+                }]
+              },
+              lineStyles: {
+                count: 1,
+                styles: [{
+                  type: "basic",
+                  width: 20,
+                  color: { r: 0, g: 0, b: 0 }
+                }]
+              },
+              shapeRecords: {
+                recordCount: 5,
+                records: [
+                  { type: "style_change", flags: { moveTo: true }, moveToX: 100, moveToY: 100 },
+                  { type: "straight_edge", deltaX: 200, deltaY: 0 },
+                  { type: "straight_edge", deltaX: 0, deltaY: 150 },
+                  { type: "straight_edge", deltaX: -200, deltaY: 0 },
+                  { type: "end" }
+                ]
+              },
+              complexity: "simple",
+              hasTransparency: false
+            }
+          };
+
+          if (typeof ShapeParserTranslator !== 'undefined') {
+            const shapeTranslator = new ShapeParserTranslator();
+            const result = shapeTranslator.translateShapeData(sampleShapeData);
+            output.push(result.output);
+          } else {
+            output.push("ShapeParserTranslator not available");
+          }
+        }
+
+        if (typeToTranslate === 'display' || typeToTranslate === 'both') {
+          output.push("\n--- Display Translation ---");
+          
+          // Sample display data (this would come from actual parsing)
+          const sampleDisplayData = {
+            tagType: "PlaceObject2",
+            description: "Places/modifies a character on the display list (extended)",
+            data: {
+              flags: {
+                hasCharacter: true,
+                hasMatrix: true,
+                hasColorTransform: false,
+                hasMove: false,
+                hasName: true
+              },
+              depth: 1,
+              characterId: 1,
+              matrix: {
+                scaleX: 1.0,
+                scaleY: 1.0,
+                rotateSkew0: 0.0,
+                rotateSkew1: 0.0,
+                translateX: 200,
+                translateY: 100
+              },
+              name: "myShape",
+              isMove: false,
+              isNewPlacement: true
+            }
+          };
+
+          if (typeof DisplayParserTranslator !== 'undefined') {
+            const displayTranslator = new DisplayParserTranslator();
+            const result = displayTranslator.translateDisplayData(sampleDisplayData);
+            output.push(result.output);
+          } else {
+            output.push("DisplayParserTranslator not available");
+          }
+        }
+
+        output.push("\n============================");
+        output.push("Translation Process Completed");
+
+      } catch (error) {
+        output.push(`\nTranslation Error: ${error.message}`);
+      }
+
+      translatorOutput.textContent = output.join('\n');
     }
 
     document.getElementById('SWF-Input').addEventListener('change', async function(event) {
       const file = event.target.files[0];
       if (!file) {
-        terminal.textContent = 'No file selected.';
+        const terminal = document.getElementById('terminalOutput');
+        if (terminal) {
+          terminal.textContent = 'No file selected.';
+        }
         return;
       }
 
@@ -549,21 +851,34 @@
       const extension = fileName.split('.').pop().toLowerCase();
 
       if (extension !== 'swf') {
-        terminal.textContent = 'Error: File is not in SWF file format. Please use only SWF files.';
+        const terminal = document.getElementById('terminalOutput');
+        if (terminal) {
+          terminal.textContent = 'Error: File is not in SWF file format. Please use only SWF files.';
+        }
         window.start = false;
         return;
       }
 
-      terminal.textContent = 'Determined that file is in SWF format...\nReading file...';
+      const terminal = document.getElementById('terminalOutput');
+      if (terminal) {
+        terminal.textContent = 'Determined that file is in SWF format...\nReading file...';
+      }
       window.start = true;
 
       try {
         const arrayBuffer = await file.arrayBuffer();
+        window.currentFileBuffer = arrayBuffer;
+        
         const parsedInfo = parseSWFSignature(arrayBuffer);
         const tagInfo = parseSWFTags(arrayBuffer);
-        terminal.textContent = parsedInfo + '\n\n' + tagInfo;
+        
+        if (terminal) {
+          terminal.textContent = parsedInfo + '\n\n' + tagInfo;
+        }
       } catch (err) {
-        terminal.textContent = 'Error reading SWF file: ' + err.message;
+        if (terminal) {
+          terminal.textContent = 'Error reading SWF file: ' + err.message;
+        }
       }
     });
   </script>
@@ -588,6 +903,12 @@
   <script src="JS/parsers/VideoParsers.js"></script>
   <script src="JS/parsers/MorphParsers.js"></script>
   <script src="JS/parsers/ScalingParsers.js"></script>
+  
+  <!-- Load translator modules -->
+  <script src="JS/translators/ShapeParserTranslator.js"></script>
+  <script src="JS/translators/DisplayParserTranslator.js"></script>
+  
+  <!-- Load core parsing files -->
   <script src="JS/TagParse.js"></script>
   
   <!-- Load Parse.js LAST as it runs commands from other files -->
