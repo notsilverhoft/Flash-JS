@@ -1,5 +1,5 @@
-/* 
- * SWF Tag Parser - v3.4
+	/* 
+ * SWF Tag Parser - v3.3
  * Supports:
  * - Tag header parsing (type and length)
  * - Short and long format tag headers
@@ -26,9 +26,6 @@
  * - ENHANCED: Added AS3Parsers integration for comprehensive ActionScript 3.0 support
  * - NEW: Integrated ShapeTranslator for WebGL rendering support in Flash-JS repository
  * - NEW: Integrated DisplayTranslator for timeline display list management in Flash-JS repository
- * - FIXED: Complete WebGL integration with proper data flow to renderer
- * - CRITICAL FIX: Parser initialization now ALWAYS happens for WebGL translation regardless of display mode
- * - EMERGENCY FIX: Fixed broken canBeParsed line that was causing syntax errors
  */
 
 // Global variables for tag filtering
@@ -369,8 +366,7 @@ function parseTagData(tagData) {
   const output = [];
   const unknownTags = new Set();
   
-  // CRITICAL FIX: Initialize ALL parsers UNCONDITIONALLY for WebGL translation
-  // Display modes should only control OUTPUT, not whether parsing happens
+  // Initialize content parsers if needed
   let controlParser = null;
   let displayParser = null;
   let assetParser = null;
@@ -385,47 +381,6 @@ function parseTagData(tagData) {
   let morphParser = null;
   let scalingParser = null;
   
-  // ALWAYS initialize parsers for WebGL translation regardless of display mode
-  if (typeof ControlParsers !== 'undefined') {
-    controlParser = new ControlParsers();
-  }
-  if (typeof DisplayParsers !== 'undefined') {
-    displayParser = new DisplayParsers();
-  }
-  if (typeof AssetParsers !== 'undefined') {
-    assetParser = new AssetParsers();
-  }
-  if (typeof ShapeParsers !== 'undefined') {
-    shapeParser = new ShapeParsers();
-  }
-  if (typeof SpriteParsers !== 'undefined') {
-    spriteParser = new SpriteParsers();
-  }
-  if (typeof FontParsers !== 'undefined') {
-    fontParser = new FontParsers();
-  }
-  if (typeof TextParsers !== 'undefined') {
-    textParser = new TextParsers();
-  }
-  if (typeof BitmapParsers !== 'undefined') {
-    bitmapParser = new BitmapParsers();
-  }
-  if (typeof SoundParsers !== 'undefined') {
-    soundParser = new SoundParsers();
-  }
-  if (typeof ButtonParsers !== 'undefined') {
-    buttonParser = new ButtonParsers();
-  }
-  if (typeof VideoParsers !== 'undefined') {
-    videoParser = new VideoParsers();
-  }
-  if (typeof MorphParsers !== 'undefined') {
-    morphParser = new MorphParsers();
-  }
-  if (typeof ScalingParsers !== 'undefined') {
-    scalingParser = new ScalingParsers();
-  }
-  
   // Initialize ShapeTranslator for WebGL integration in Flash-JS repository
   let shapeTranslator = null;
   if (typeof ShapeTranslator !== 'undefined') {
@@ -438,6 +393,48 @@ function parseTagData(tagData) {
   if (typeof DisplayTranslator !== 'undefined') {
     displayTranslator = new DisplayTranslator(null, shapeTranslator);
     output.push("DisplayTranslator initialized for timeline display list management in Flash-JS repository");
+  }
+  
+  if (window.showContentParsing || window.showErrorsOnly) {
+    if (typeof ControlParsers !== 'undefined') {
+      controlParser = new ControlParsers();
+    }
+    if (typeof DisplayParsers !== 'undefined') {
+      displayParser = new DisplayParsers();
+    }
+    if (typeof AssetParsers !== 'undefined') {
+      assetParser = new AssetParsers();
+    }
+    if (typeof ShapeParsers !== 'undefined') {
+      shapeParser = new ShapeParsers();
+    }
+    if (typeof SpriteParsers !== 'undefined') {
+      spriteParser = new SpriteParsers();
+    }
+    if (typeof FontParsers !== 'undefined') {
+      fontParser = new FontParsers();
+    }
+    if (typeof TextParsers !== 'undefined') {
+      textParser = new TextParsers();
+    }
+    if (typeof BitmapParsers !== 'undefined') {
+      bitmapParser = new BitmapParsers();
+    }
+    if (typeof SoundParsers !== 'undefined') {
+      soundParser = new SoundParsers();
+    }
+    if (typeof ButtonParsers !== 'undefined') {
+      buttonParser = new ButtonParsers();
+    }
+    if (typeof VideoParsers !== 'undefined') {
+      videoParser = new VideoParsers();
+    }
+    if (typeof MorphParsers !== 'undefined') {
+      morphParser = new MorphParsers();
+    }
+    if (typeof ScalingParsers !== 'undefined') {
+      scalingParser = new ScalingParsers();
+    }
   }
   
   // Different output format based on mode
@@ -495,165 +492,101 @@ function parseTagData(tagData) {
     const isVideoTag = videoTags.has(tagHeader.type);
     const isMorphTag = morphTags.has(tagHeader.type);
     const isScalingTag = scalingTags.has(tagHeader.type);
-    
-    // EMERGENCY FIX: Complete the canBeParsed line that was broken with [...]
     const canBeParsed = isControlTag || isDisplayTag || isAssetTag || isActionScriptTag || isShapeTag || isSpriteTag || isFontTag || isTextTag || isBitmapTag || isSoundTag || isButtonTag || isVideoTag || isMorphTag || isScalingTag;
     
-    // Check tag type filter for DISPLAY ONLY
+    // Check tag type filter
     const passesFilter = shouldDisplayTagByFilter(tagHeader.type);
     
     if (!passesFilter) {
       skippedByFilter++;
-      // Continue processing for WebGL translation but skip output
-    } else {
-      if (isUnknown) {
-        unknownTags.add(tagHeader.type);
-      }
+      // Move to next tag without processing
+      offset += tagHeader.headerSize + tagHeader.length;
+      tagIndex++;
+      continue;
+    }
+    
+    if (isUnknown) {
+      unknownTags.add(tagHeader.type);
     }
     
     // Determine if we should display this tag based on mode
-    const shouldDisplay = (window.showAllTags || isImportant || isUnknown) && passesFilter;
+    const shouldDisplay = window.showAllTags || isImportant || isUnknown;
     
-    // CRITICAL: ALWAYS process shape tags for WebGL translation regardless of display mode
-    if (isShapeTag && shapeParser && shapeTranslator && tagHeader.length >= 0) {
-      try {
-        const contentOffset = offset + tagHeader.headerSize;
-        const parsedContent = shapeParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
-        
-        if (parsedContent && parsedContent.data && parsedContent.data.shapeId !== undefined) {
-          try {
-            const translatedGeometry = shapeTranslator.translateShape(parsedContent.data);
-            if (translatedGeometry) {
-              window.translatedShapeData.set(parsedContent.data.shapeId, translatedGeometry);
-              translatedShapeCount++;
-              
-              // Add translation info for debugging only if in appropriate mode
-              if (window.showContentParsing || window.showErrorsOnly) {
-                parsedContent.data.webglTranslation = {
-                  translated: true,
-                  vertexCount: translatedGeometry.vertexCount,
-                  triangleCount: translatedGeometry.triangleCount,
-                  method: translatedGeometry.method
-                };
-              }
-            }
-          } catch (translationError) {
-            if (window.showContentParsing || window.showErrorsOnly) {
-              parsedContent.data.webglTranslation = {
-                translated: false,
-                error: translationError.message
-              };
-            }
-          }
-        }
-        
-        // Display shape content only if in appropriate mode and passes filter
-        if (window.showContentParsing && passesFilter) {
-          output.push(`\nTag ${tagIndex}: ${parsedContent.tagType}`);
-          output.push(`Description: ${parsedContent.description}`);
-          output.push(`Length: ${tagHeader.length} bytes`);
-          
-          if (parsedContent.error) {
-            output.push(`ERROR: ${parsedContent.error}`);
-          }
-          
-          if (parsedContent.data && Object.keys(parsedContent.data).length > 0) {
-            output.push("Content:");
-            formatContentDataSafe(parsedContent.data, output);
-          }
-          
-          parsedContentTags++;
-        }
-        
-      } catch (parseError) {
-        if (window.showContentParsing && passesFilter) {
-          output.push(`\nTag ${tagIndex}: ${tagName} (Parse Error)`);
-          output.push(`ERROR: ${parseError.message}`);
-        }
-      }
-    }
-    
-    // CRITICAL: ALWAYS process display tags for WebGL translation regardless of display mode
-    if (isDisplayTag && displayParser && displayTranslator && tagHeader.length >= 0) {
-      try {
-        const contentOffset = offset + tagHeader.headerSize;
-        const parsedContent = displayParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
-        
-        if (parsedContent && parsedContent.data) {
-          try {
-            let displayObject = null;
-            
-            // Process different display tag types
-            if (tagHeader.type === 4 || tagHeader.type === 26 || tagHeader.type === 70) { // PlaceObject variants
-              displayObject = displayTranslator.translatePlaceObject(parsedContent.data, window.translatedShapeData);
-            } else if (tagHeader.type === 5 || tagHeader.type === 28) { // RemoveObject variants
-              displayObject = displayTranslator.translateRemoveObject(parsedContent.data);
-            } else if (tagHeader.type === 1) { // ShowFrame
-              displayObject = displayTranslator.translateShowFrame(parsedContent.data);
-            }
-            
-            if (displayObject) {
-              window.translatedDisplayData.set(displayObject.depth || translatedDisplayCount, displayObject);
-              translatedDisplayCount++;
-              
-              // Add translation info for debugging only if in appropriate mode
-              if (window.showContentParsing || window.showErrorsOnly) {
-                parsedContent.data.webglDisplayTranslation = {
-                  translated: true,
-                  depth: displayObject.depth,
-                  characterId: displayObject.characterId,
-                  method: 'timeline_display_translation'
-                };
-              }
-            }
-          } catch (translationError) {
-            if (window.showContentParsing || window.showErrorsOnly) {
-              parsedContent.data.webglDisplayTranslation = {
-                translated: false,
-                error: translationError.message
-              };
-            }
-          }
-        }
-        
-        // Display content only if in appropriate mode and passes filter
-        if (window.showContentParsing && passesFilter) {
-          output.push(`\nTag ${tagIndex}: ${parsedContent.tagType}`);
-          output.push(`Description: ${parsedContent.description}`);
-          output.push(`Length: ${tagHeader.length} bytes`);
-          
-          if (parsedContent.error) {
-            output.push(`ERROR: ${parsedContent.error}`);
-          }
-          
-          if (parsedContent.data && Object.keys(parsedContent.data).length > 0) {
-            output.push("Content:");
-            formatContentDataSafe(parsedContent.data, output);
-          }
-          
-          parsedContentTags++;
-        }
-        
-      } catch (parseError) {
-        if (window.showContentParsing && passesFilter) {
-          output.push(`\nTag ${tagIndex}: ${tagName} (Parse Error)`);
-          output.push(`ERROR: ${parseError.message}`);
-        }
-      }
-    }
-    
-    // Handle other display modes for non-shape/display tags
     if (window.showContentParsing) {
       // CONTENT PARSING MODE - Only show tags that can be parsed
-      if (canBeParsed && tagHeader.length >= 0 && !isShapeTag && !isDisplayTag && passesFilter) {
+      if (canBeParsed && tagHeader.length >= 0) {
         try {
           const contentOffset = offset + tagHeader.headerSize;
           let parsedContent = null;
           
           if (controlParser && isControlTag) {
             parsedContent = controlParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
+          } else if (displayParser && isDisplayTag) {
+            parsedContent = displayParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
+            
+            // NEW: Integrate DisplayTranslator for timeline display list management in Flash-JS repository
+            if (parsedContent && parsedContent.data && displayTranslator) {
+              try {
+                let displayObject = null;
+                
+                // Process different display tag types
+                if (tagHeader.type === 4 || tagHeader.type === 26 || tagHeader.type === 70) { // PlaceObject variants
+                  displayObject = displayTranslator.translatePlaceObject(parsedContent.data, window.translatedShapeData);
+                } else if (tagHeader.type === 5 || tagHeader.type === 28) { // RemoveObject variants
+                  displayObject = displayTranslator.translateRemoveObject(parsedContent.data);
+                } else if (tagHeader.type === 1) { // ShowFrame
+                  displayObject = displayTranslator.translateShowFrame(parsedContent.data);
+                }
+                
+                if (displayObject) {
+                  window.translatedDisplayData.set(displayObject.depth || translatedDisplayCount, displayObject);
+                  translatedDisplayCount++;
+                  
+                  // Add translation info to parsed content for debugging in Parse.js terminal
+                  parsedContent.data.webglDisplayTranslation = {
+                    translated: true,
+                    depth: displayObject.depth,
+                    characterId: displayObject.characterId,
+                    method: 'timeline_display_translation'
+                  };
+                }
+              } catch (translationError) {
+                // Add translation error to parsed content for debugging in Parse.js terminal
+                parsedContent.data.webglDisplayTranslation = {
+                  translated: false,
+                  error: translationError.message
+                };
+              }
+            }
           } else if (assetParser && (isAssetTag || isActionScriptTag)) {
             parsedContent = assetParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
+          } else if (shapeParser && isShapeTag) {
+            parsedContent = shapeParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
+            
+            // NEW: Integrate ShapeTranslator for WebGL rendering in Flash-JS repository
+            if (parsedContent && parsedContent.data && shapeTranslator) {
+              try {
+                const translatedGeometry = shapeTranslator.translateShape(parsedContent.data);
+                if (translatedGeometry && parsedContent.data.shapeId !== undefined) {
+                  window.translatedShapeData.set(parsedContent.data.shapeId, translatedGeometry);
+                  translatedShapeCount++;
+                  
+                  // Add translation info to parsed content for debugging in Parse.js terminal
+                  parsedContent.data.webglTranslation = {
+                    translated: true,
+                    vertexCount: translatedGeometry.vertexCount,
+                    triangleCount: translatedGeometry.triangleCount,
+                    method: translatedGeometry.method
+                  };
+                }
+              } catch (translationError) {
+                // Add translation error to parsed content for debugging in Parse.js terminal
+                parsedContent.data.webglTranslation = {
+                  translated: false,
+                  error: translationError.message
+                };
+              }
+            }
           } else if (spriteParser && isSpriteTag) {
             parsedContent = spriteParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
           } else if (fontParser && isFontTag) {
@@ -685,7 +618,67 @@ function parseTagData(tagData) {
             
             if (parsedContent.data && Object.keys(parsedContent.data).length > 0) {
               output.push("Content:");
-              formatContentDataSafe(parsedContent.data, output);
+              
+              // Safe content formatting with stack overflow protection
+              const formatContentDataSafe = (data, indent = "  ", depth = 0, visited = new WeakSet()) => {
+                // Prevent infinite recursion
+                if (depth > 10) {
+                  output.push(`${indent}[Max depth reached]`);
+                  return;
+                }
+                
+                // Prevent circular references
+                if (typeof data === 'object' && data !== null) {
+                  if (visited.has(data)) {
+                    output.push(`${indent}[Circular reference detected]`);
+                    return;
+                  }
+                  visited.add(data);
+                }
+                
+                for (const [key, value] of Object.entries(data)) {
+                  if (value === null || value === undefined) {
+                    output.push(`${indent}${key}: null`);
+                  } else if (typeof value === 'object' && !Array.isArray(value)) {
+                    output.push(`${indent}${key}:`);
+                    formatContentDataSafe(value, indent + "  ", depth + 1, visited);
+                  } else if (Array.isArray(value)) {
+                    output.push(`${indent}${key}: [${value.length} items]`);
+                    if (value.length <= 5) {
+                      value.forEach((item, index) => {
+                        if (typeof item === 'object' && item !== null) {
+                          output.push(`${indent}  [${index}]:`);
+                          formatContentDataSafe(item, indent + "    ", depth + 1, visited);
+                        } else {
+                          output.push(`${indent}  [${index}]: ${String(item).substring(0, 100)}`);
+                        }
+                      });
+                    } else {
+                      output.push(`${indent}  (showing first 3 of ${value.length} items)`);
+                      for (let i = 0; i < 3; i++) {
+                        if (typeof value[i] === 'object' && value[i] !== null) {
+                          output.push(`${indent}  [${i}]:`);
+                          formatContentDataSafe(value[i], indent + "    ", depth + 1, visited);
+                        } else {
+                          output.push(`${indent}  [${i}]: ${String(value[i]).substring(0, 100)}`);
+                        }
+                      }
+                    }
+                  } else {
+                    // Truncate very long strings
+                    const stringValue = String(value);
+                    const truncated = stringValue.length > 200 ? stringValue.substring(0, 200) + "..." : stringValue;
+                    output.push(`${indent}${key}: ${truncated}`);
+                  }
+                }
+                
+                // Remove from visited set when done (for reuse in sibling branches)
+                if (typeof data === 'object' && data !== null) {
+                  visited.delete(data);
+                }
+              };
+              
+              formatContentDataSafe(parsedContent.data);
             }
             
             parsedContentTags++;
@@ -694,6 +687,7 @@ function parseTagData(tagData) {
         } catch (contentError) {
           output.push(`\nTag ${tagIndex}: ${tagName} (Parse Error)`);
           output.push(`ERROR: ${contentError.message}`);
+          // Add stack trace for debugging
           if (contentError.stack) {
             output.push(`Stack trace: ${contentError.stack.substring(0, 300)}...`);
           }
@@ -710,6 +704,7 @@ function parseTagData(tagData) {
           tagDisplay += " [NEEDS PARSER]";
         }
         
+        // Add some hints about what type of parser this might need
         const tagTypeHints = {
           87: "Binary data parser needed"
         };
@@ -724,7 +719,7 @@ function parseTagData(tagData) {
       
     } else if (window.showErrorsOnly) {
       // ERROR-ONLY MODE - Only show tags that have parsers but encountered errors
-      if (canBeParsed && tagHeader.length >= 0 && passesFilter) {
+      if (canBeParsed && tagHeader.length >= 0) {
         try {
           const contentOffset = offset + tagHeader.headerSize;
           let parsedContent = null;
@@ -734,10 +729,56 @@ function parseTagData(tagData) {
             parsedContent = controlParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
           } else if (displayParser && isDisplayTag) {
             parsedContent = displayParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
+            
+            // NEW: Integrate DisplayTranslator for timeline display list management in Flash-JS repository (error mode)
+            if (parsedContent && parsedContent.data && displayTranslator) {
+              try {
+                let displayObject = null;
+                
+                // Process different display tag types
+                if (tagHeader.type === 4 || tagHeader.type === 26 || tagHeader.type === 70) { // PlaceObject variants
+                  displayObject = displayTranslator.translatePlaceObject(parsedContent.data, window.translatedShapeData);
+                } else if (tagHeader.type === 5 || tagHeader.type === 28) { // RemoveObject variants
+                  displayObject = displayTranslator.translateRemoveObject(parsedContent.data);
+                } else if (tagHeader.type === 1) { // ShowFrame
+                  displayObject = displayTranslator.translateShowFrame(parsedContent.data);
+                }
+                
+                if (displayObject) {
+                  window.translatedDisplayData.set(displayObject.depth || translatedDisplayCount, displayObject);
+                  translatedDisplayCount++;
+                }
+              } catch (translationError) {
+                // Display translation error is also an error condition
+                parsedContent.data.webglDisplayTranslation = {
+                  translated: false,
+                  error: translationError.message
+                };
+                hasError = true;
+              }
+            }
           } else if (assetParser && (isAssetTag || isActionScriptTag)) {
             parsedContent = assetParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
           } else if (shapeParser && isShapeTag) {
             parsedContent = shapeParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
+            
+            // NEW: Integrate ShapeTranslator for WebGL rendering in Flash-JS repository (error mode)
+            if (parsedContent && parsedContent.data && shapeTranslator) {
+              try {
+                const translatedGeometry = shapeTranslator.translateShape(parsedContent.data);
+                if (translatedGeometry && parsedContent.data.shapeId !== undefined) {
+                  window.translatedShapeData.set(parsedContent.data.shapeId, translatedGeometry);
+                  translatedShapeCount++;
+                }
+              } catch (translationError) {
+                // Shape translation error is also an error condition
+                parsedContent.data.webglTranslation = {
+                  translated: false,
+                  error: translationError.message
+                };
+                hasError = true;
+              }
+            }
           } else if (spriteParser && isSpriteTag) {
             parsedContent = spriteParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
           } else if (fontParser && isFontTag) {
@@ -821,7 +862,7 @@ function parseTagData(tagData) {
       }
       
     } else {
-      // NORMAL TAG HEADER MODE
+      // NORMAL TAG HEADER MODE - Also process shapes and display objects for WebGL translation in Flash-JS repository
       if (shouldDisplay) {
         let tagDisplay = `Tag ${tagIndex}: Type ${tagHeader.type} (${tagName}), Length ${tagHeader.length} bytes`;
         if (isUnknown) {
@@ -829,6 +870,60 @@ function parseTagData(tagData) {
         }
         output.push(tagDisplay);
         displayedTags++;
+      }
+      
+      // NEW: Process shape tags for WebGL translation even in header mode
+      if (isShapeTag && shapeParser && shapeTranslator && tagHeader.length >= 0) {
+        try {
+          const contentOffset = offset + tagHeader.headerSize;
+          const parsedContent = shapeParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
+          
+          if (parsedContent && parsedContent.data && parsedContent.data.shapeId !== undefined) {
+            try {
+              const translatedGeometry = shapeTranslator.translateShape(parsedContent.data);
+              if (translatedGeometry) {
+                window.translatedShapeData.set(parsedContent.data.shapeId, translatedGeometry);
+                translatedShapeCount++;
+              }
+            } catch (translationError) {
+              // Silent failure in header mode - translation errors don't affect header display
+            }
+          }
+        } catch (parseError) {
+          // Silent failure in header mode - parse errors don't affect header display
+        }
+      }
+      
+      // NEW: Process display tags for timeline translation even in header mode
+      if (isDisplayTag && displayParser && displayTranslator && tagHeader.length >= 0) {
+        try {
+          const contentOffset = offset + tagHeader.headerSize;
+          const parsedContent = displayParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
+          
+          if (parsedContent && parsedContent.data) {
+            try {
+              let displayObject = null;
+              
+              // Process different display tag types
+              if (tagHeader.type === 4 || tagHeader.type === 26 || tagHeader.type === 70) { // PlaceObject variants
+                displayObject = displayTranslator.translatePlaceObject(parsedContent.data, window.translatedShapeData);
+              } else if (tagHeader.type === 5 || tagHeader.type === 28) { // RemoveObject variants
+                displayObject = displayTranslator.translateRemoveObject(parsedContent.data);
+              } else if (tagHeader.type === 1) { // ShowFrame
+                displayObject = displayTranslator.translateShowFrame(parsedContent.data);
+              }
+              
+              if (displayObject) {
+                window.translatedDisplayData.set(displayObject.depth || translatedDisplayCount, displayObject);
+                translatedDisplayCount++;
+              }
+            } catch (translationError) {
+              // Silent failure in header mode - translation errors don't affect header display
+            }
+          }
+        } catch (parseError) {
+          // Silent failure in header mode - parse errors don't affect header display
+        }
       }
     }
     
@@ -861,7 +956,7 @@ function parseTagData(tagData) {
       output.push(`Tags filtered out: ${skippedByFilter}`);
     }
     
-    // CRITICAL: Add ShapeTranslator and DisplayTranslator summary for Flash-JS repository WebGL integration
+    // NEW: Add ShapeTranslator and DisplayTranslator summary for Flash-JS repository WebGL integration
     if (translatedShapeCount > 0) {
       output.push(`Shapes translated for WebGL: ${translatedShapeCount}`);
     }
@@ -896,7 +991,7 @@ function parseTagData(tagData) {
       output.push(`Tags filtered out: ${skippedByFilter}`);
     }
     
-    // CRITICAL: Add ShapeTranslator and DisplayTranslator summary for Flash-JS repository WebGL integration
+    // NEW: Add ShapeTranslator and DisplayTranslator summary for Flash-JS repository WebGL integration
     if (translatedShapeCount > 0) {
       output.push(`Shapes translated for WebGL: ${translatedShapeCount}`);
     }
@@ -918,7 +1013,7 @@ function parseTagData(tagData) {
   } else {
     output.push(`Total tags parsed: ${tagIndex}, Displayed: ${displayedTags}`);
     
-    // CRITICAL: Add ShapeTranslator and DisplayTranslator summary for Flash-JS repository WebGL integration
+    // NEW: Add ShapeTranslator and DisplayTranslator summary for Flash-JS repository WebGL integration
     if (translatedShapeCount > 0) {
       output.push(`Shapes translated for WebGL rendering: ${translatedShapeCount}`);
     }
@@ -937,65 +1032,6 @@ function parseTagData(tagData) {
   }
   
   return output;
-}
-
-// Safe content formatting with stack overflow protection
-function formatContentDataSafe(data, output, indent = "  ", depth = 0, visited = new WeakSet()) {
-  // Prevent infinite recursion
-  if (depth > 10) {
-    output.push(`${indent}[Max depth reached]`);
-    return;
-  }
-  
-  // Prevent circular references
-  if (typeof data === 'object' && data !== null) {
-    if (visited.has(data)) {
-      output.push(`${indent}[Circular reference detected]`);
-      return;
-    }
-    visited.add(data);
-  }
-  
-  for (const [key, value] of Object.entries(data)) {
-    if (value === null || value === undefined) {
-      output.push(`${indent}${key}: null`);
-    } else if (typeof value === 'object' && !Array.isArray(value)) {
-      output.push(`${indent}${key}:`);
-      formatContentDataSafe(value, output, indent + "  ", depth + 1, visited);
-    } else if (Array.isArray(value)) {
-      output.push(`${indent}${key}: [${value.length} items]`);
-      if (value.length <= 5) {
-        value.forEach((item, index) => {
-          if (typeof item === 'object' && item !== null) {
-            output.push(`${indent}  [${index}]:`);
-            formatContentDataSafe(item, output, indent + "    ", depth + 1, visited);
-          } else {
-            output.push(`${indent}  [${index}]: ${String(item).substring(0, 100)}`);
-          }
-        });
-      } else {
-        output.push(`${indent}  (showing first 3 of ${value.length} items)`);
-        for (let i = 0; i < 3; i++) {
-          if (typeof value[i] === 'object' && value[i] !== null) {
-            output.push(`${indent}  [${i}]:`);
-            formatContentDataSafe(value[i], output, indent + "    ", depth + 1, visited);
-          } else {
-            output.push(`${indent}  [${i}]: ${String(value[i]).substring(0, 100)}`);
-          }
-        }
-      }
-    } else {
-      // Truncate very long strings
-      const stringValue = String(value);
-      const truncated = stringValue.length > 200 ? stringValue.substring(0, 200) + "..." : stringValue;
-      output.push(`${indent}${key}: ${truncated}`);
-    }
-  }
-  
-  // Remove from visited set when done (for reuse in sibling branches)
-  if (typeof data === 'object' && data !== null) {
-    visited.delete(data);
-  }
 }
 
 // Helper function to describe current filter
