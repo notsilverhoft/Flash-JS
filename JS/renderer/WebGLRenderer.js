@@ -1,11 +1,12 @@
 /* 
- * WebGL SWF Renderer - v1.1
+ * WebGL SWF Renderer - v1.2
  * Final stage of the Flash-JS rendering pipeline
  * Takes pre-processed data from translators and renders to WebGL canvas
  * Only works with translated data - no parsing or translation logic
  * Handles shapes, display lists, transformations, and advanced features
  * ENHANCED: Auto-consumption of translated data with automatic rendering pipeline
  * FIXED: Removed duplicate class definition that was breaking script loading
+ * FIXED: updateCanvasInfo timing issue - now handles deferred UI updates properly
  */
 class WebGLRenderer {
   constructor(canvas) {
@@ -25,6 +26,10 @@ class WebGLRenderer {
     this.translatedDataQueue = [];
     this.renderingInProgress = false;
     this.totalTranslatedItems = 0;
+    
+    // UI update handling
+    this.pendingUIUpdates = [];
+    this.uiUpdateCallback = null;
     
     // WebGL state
     this.vertexBuffer = null;
@@ -110,13 +115,37 @@ class WebGLRenderer {
         // Auto-consume in renderer
         this.consumeTranslatedData(translatedData);
         
-        // Update UI if available
-        if (typeof updateCanvasInfo === 'function') {
-          updateCanvasInfo();
-        }
+        // Try to update UI, or queue the update for later
+        this.requestUIUpdate();
       };
       
       this.output.push("Auto-consumption pipeline created");
+    }
+  }
+
+  // ==================== UI UPDATE HANDLING ====================
+
+  requestUIUpdate() {
+    // Try to call updateCanvasInfo if it's available
+    if (typeof updateCanvasInfo === 'function') {
+      updateCanvasInfo();
+    } else if (typeof window.updateCanvasInfo === 'function') {
+      window.updateCanvasInfo();
+    } else {
+      // Queue the update for when the UI is ready
+      this.pendingUIUpdates.push(Date.now());
+      this.output.push("UI update queued - updateCanvasInfo not yet available");
+    }
+  }
+
+  setUIUpdateCallback(callback) {
+    this.uiUpdateCallback = callback;
+    
+    // Process any pending UI updates
+    if (this.pendingUIUpdates.length > 0) {
+      this.output.push(`Processing ${this.pendingUIUpdates.length} pending UI updates`);
+      this.pendingUIUpdates = [];
+      callback();
     }
   }
 
@@ -189,10 +218,8 @@ class WebGLRenderer {
       renderButton.style.backgroundColor = '#28a745';
     }
     
-    // Update canvas info
-    if (typeof updateCanvasInfo === 'function') {
-      updateCanvasInfo();
-    }
+    // Request UI update through the proper channel
+    this.requestUIUpdate();
   }
 
   initShaders() {
@@ -909,7 +936,8 @@ class WebGLRenderer {
       canvasSize: `${this.canvas.width}×${this.canvas.height}`,
       autoRenderEnabled: this.autoRenderEnabled,
       totalTranslatedItems: this.totalTranslatedItems,
-      queuedItems: this.translatedDataQueue.length
+      queuedItems: this.translatedDataQueue.length,
+      pendingUIUpdates: this.pendingUIUpdates.length
     };
   }
 
