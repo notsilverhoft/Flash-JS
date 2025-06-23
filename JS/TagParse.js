@@ -1,5 +1,5 @@
 /* 
- * SWF Tag Parser - v3.3
+ * SWF Tag Parser - v3.4
  * Supports:
  * - Tag header parsing (type and length)
  * - Short and long format tag headers
@@ -27,6 +27,7 @@
  * - ENHANCED: Automatic translator implementation for real-time translation
  * - ENHANCED: WebGL renderer integration for complete rendering pipeline
  * - FIXED: Syntax error in canBeParsed variable definition that was breaking script loading
+ * - FIXED: Complete canBeParsed variable definition for proper tag type checking
  */
 
 // Global variables for tag filtering
