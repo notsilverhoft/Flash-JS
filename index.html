@@ -275,7 +275,7 @@
 
   <!-- Translation Info Notice -->
   <div class="translation-info">
-    <strong>Automatic Rendering Pipeline:</strong> Parse SWF → Translate to WebGL format → Auto-consume in Renderer → Click "Start Rendering" to display. The renderer automatically processes all translated data - no need to find specific tags!
+    <strong>Automatic Rendering Pipeline:</strong> Parse SWF → Translate to WebGL format → Auto-consume in Renderer → Click "Start Rendering" to display. The renderer automatically processes all translated data and queues UI updates properly.
   </div>
 
   <!-- Canvas Container -->
@@ -520,6 +520,11 @@
           window.webglRenderer = new WebGLRenderer(renderCanvas);
           rendererOutput.textContent = window.webglRenderer.getOutput();
           updateCanvasInfo();
+          
+          // CRITICAL FIX: Establish UI callback connection once both renderer and UI are ready
+          if (window.webglRenderer && typeof updateCanvasInfo === 'function') {
+            window.webglRenderer.setUIUpdateCallback(updateCanvasInfo);
+          }
         } else {
           throw new Error("WebGLRenderer class not found - script loading issue");
         }
@@ -836,7 +841,7 @@
       });
 
       // Initial setup complete
-      console.log("Flash-JS application initialized with auto-consumption pipeline");
+      console.log("Flash-JS application initialized with auto-consumption pipeline and UI callback connection");
     }
   </script>
 </body>
