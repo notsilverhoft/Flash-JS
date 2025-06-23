@@ -28,6 +28,7 @@
  * - NEW: Integrated DisplayTranslator for timeline display list management in Flash-JS repository
  * - FIXED: Complete WebGL integration with proper data flow to renderer
  * - CRITICAL FIX: Parser initialization now ALWAYS happens for WebGL translation regardless of display mode
+ * - EMERGENCY FIX: Fixed broken canBeParsed line that was causing syntax errors
  */
 
 // Global variables for tag filtering
@@ -494,6 +495,8 @@ function parseTagData(tagData) {
     const isVideoTag = videoTags.has(tagHeader.type);
     const isMorphTag = morphTags.has(tagHeader.type);
     const isScalingTag = scalingTags.has(tagHeader.type);
+    
+    // EMERGENCY FIX: Complete the canBeParsed line that was broken with [...]
     const canBeParsed = isControlTag || isDisplayTag || isAssetTag || isActionScriptTag || isShapeTag || isSpriteTag || isFontTag || isTextTag || isBitmapTag || isSoundTag || isButtonTag || isVideoTag || isMorphTag || isScalingTag;
     
     // Check tag type filter for DISPLAY ONLY
