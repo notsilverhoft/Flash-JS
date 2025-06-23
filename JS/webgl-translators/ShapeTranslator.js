@@ -25,6 +25,18 @@ class ShapeTranslator {
         this.currentLineStyle = 0;
         
         this.logToTerminal('ShapeTranslator initialized for Flash-JS repository');
+        
+        // Register with global window object for TagParse.js integration
+        if (typeof window !== 'undefined') {
+            window.activeShapeTranslator = this;
+            this.logToTerminal('Registered as active ShapeTranslator with Flash-JS repository');
+            
+            // Initialize global translated shape data if it doesn't exist
+            if (!window.translatedShapeData) {
+                window.translatedShapeData = new Map();
+                this.logToTerminal('Initialized global translatedShapeData Map for Flash-JS repository');
+            }
+        }
     }
 
     translateShape(shapeData) {
@@ -70,12 +82,57 @@ class ShapeTranslator {
             
             this.logToTerminal(`Shape ${shapeData.shapeId} translated: ${geometry.vertexCount} vertices, ${geometry.triangleCount} triangles`);
             
+            // Store the shape in the global translatedShapeData for TagParse.js integration
+            if (typeof window !== 'undefined' && window.translatedShapeData && shapeData.shapeId) {
+                window.translatedShapeData.set(shapeData.shapeId, geometry);
+                this.logToTerminal(`Added shape ${shapeData.shapeId} to window.translatedShapeData`);
+            }
+            
             return geometry;
             
         } catch (error) {
             this.translationStats.failedTranslations++;
             this.logToTerminal(`Shape translation failed: ${error.message}`);
             return this.createFallbackGeometry(shapeData);
+        }
+    }
+    
+    /**
+     * Register a shape directly with the translator - used for direct integration with Parse.js
+     */
+    registerShapeFromParser(parsedShapeData) {
+        if (!parsedShapeData || !parsedShapeData.shapeId) {
+            this.logToTerminal('Cannot register shape: missing shape ID');
+            return null;
+        }
+        
+        try {
+            this.logToTerminal(`Registering shape ${parsedShapeData.shapeId} directly from Flash-JS Parser`);
+            
+            // Translate the shape to WebGL geometry
+            const translatedGeometry = this.translateShape(parsedShapeData);
+            
+            // Add to global window.translatedShapeData for the renderer to access
+            if (window.translatedShapeData && typeof window.translatedShapeData.set === 'function') {
+                window.translatedShapeData.set(parsedShapeData.shapeId, translatedGeometry);
+                this.logToTerminal(`Successfully registered shape ${parsedShapeData.shapeId} with Flash-JS WebGL renderer`);
+                
+                // Log shape stats to the terminal for visibility
+                const stats = {
+                    shapeId: parsedShapeData.shapeId,
+                    vertices: translatedGeometry.vertexCount,
+                    triangles: translatedGeometry.triangleCount,
+                    method: translatedGeometry.method
+                };
+                this.logToTerminal(`Shape statistics: ${JSON.stringify(stats)}`);
+            } else {
+                this.logToTerminal('WARNING: window.translatedShapeData is not available - shape will not be accessible to WebGL renderer');
+            }
+            
+            return translatedGeometry;
+        } catch (error) {
+            this.logToTerminal(`Error registering shape from Parser: ${error.message}`);
+            return null;
         }
     }
 
