@@ -26,6 +26,7 @@
  * - ENHANCED: Added AS3Parsers integration for comprehensive ActionScript 3.0 support
  * - NEW: Integrated ShapeTranslator for WebGL rendering support in Flash-JS repository
  * - NEW: Integrated DisplayTranslator for timeline display list management in Flash-JS repository
+ * - FIXED: Complete WebGL integration with proper data flow to renderer
  */
 
 // Global variables for tag filtering
