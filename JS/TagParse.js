@@ -1,5 +1,5 @@
 /* 
- * SWF Tag Parser - v3.2
+ * SWF Tag Parser - v3.3
  * Supports:
  * - Tag header parsing (type and length)
  * - Short and long format tag headers
@@ -25,6 +25,7 @@
  * - ADDED: Scaling grid parsing support (Tag 78)
  * - ENHANCED: Added AS3Parsers integration for comprehensive ActionScript 3.0 support
  * - ENHANCED: Automatic translator implementation for real-time translation
+ * - ENHANCED: WebGL renderer integration for complete rendering pipeline
  */
 
 // Global variables for tag filtering
@@ -552,6 +553,12 @@ function parseTagData(tagData) {
                     output.push(`Shape Bounds: ${translationResult.translatedShape.bounds.width}×${translationResult.translatedShape.bounds.height} px`);
                     output.push(`Complexity: ${translationResult.translatedShape.complexity}`);
                   }
+                  
+                  // Store translated data for renderer
+                  if (typeof window.storeTranslatedData === 'function') {
+                    window.storeTranslatedData(translationResult);
+                    output.push("Translated data stored for rendering");
+                  }
                 }
               } else if (displayTranslator && isDisplayTag && parsedContent.data && !parsedContent.error) {
                 translationResult = displayTranslator.translateDisplayData(parsedContent);
@@ -562,6 +569,12 @@ function parseTagData(tagData) {
                   output.push(`Render Commands: ${translationResult.renderCommands.length} operations`);
                   if (translationResult.displayListState) {
                     output.push(`Display List Objects: ${translationResult.displayListState.length}`);
+                  }
+                  
+                  // Store translated data for renderer
+                  if (typeof window.storeTranslatedData === 'function') {
+                    window.storeTranslatedData(translationResult);
+                    output.push("Translated data stored for rendering");
                   }
                 }
               }
@@ -817,6 +830,7 @@ function parseTagData(tagData) {
     
     if (translatedTags > 0) {
       output.push(`\nAutomatic translation enabled: ${translatedTags} tags converted to WebGL format`);
+      output.push("Translated data available for rendering - click 'Render Translated Data' button");
     }
     
   } else if (window.showUnparsedOnly) {
