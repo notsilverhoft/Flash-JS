@@ -26,7 +26,6 @@
  * - ENHANCED: Added AS3Parsers integration for comprehensive ActionScript 3.0 support
  * - NEW: Integrated ShapeTranslator for WebGL rendering support in Flash-JS repository
  * - NEW: Integrated DisplayTranslator for timeline display list management in Flash-JS repository
- * - FIXED: ShapeTranslator integration now works in header mode without breaking filters
  */
 
 // Global variables for tag filtering
@@ -873,28 +872,21 @@ function parseTagData(tagData) {
         displayedTags++;
       }
       
-      // CRITICAL FIX: Process shape tags for WebGL translation even in header mode
-      if (isShapeTag && shapeTranslator && tagHeader.length >= 0) {
+      // NEW: Process shape tags for WebGL translation even in header mode
+      if (isShapeTag && shapeParser && shapeTranslator && tagHeader.length >= 0) {
         try {
-          // Initialize shape parser just for shape translation if not already available
-          if (!shapeParser && typeof ShapeParsers !== 'undefined') {
-            shapeParser = new ShapeParsers();
-          }
+          const contentOffset = offset + tagHeader.headerSize;
+          const parsedContent = shapeParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
           
-          if (shapeParser) {
-            const contentOffset = offset + tagHeader.headerSize;
-            const parsedContent = shapeParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
-            
-            if (parsedContent && parsedContent.data && parsedContent.data.shapeId !== undefined) {
-              try {
-                const translatedGeometry = shapeTranslator.translateShape(parsedContent.data);
-                if (translatedGeometry) {
-                  window.translatedShapeData.set(parsedContent.data.shapeId, translatedGeometry);
-                  translatedShapeCount++;
-                }
-              } catch (translationError) {
-                // Silent failure in header mode - translation errors don't affect header display
+          if (parsedContent && parsedContent.data && parsedContent.data.shapeId !== undefined) {
+            try {
+              const translatedGeometry = shapeTranslator.translateShape(parsedContent.data);
+              if (translatedGeometry) {
+                window.translatedShapeData.set(parsedContent.data.shapeId, translatedGeometry);
+                translatedShapeCount++;
               }
+            } catch (translationError) {
+              // Silent failure in header mode - translation errors don't affect header display
             }
           }
         } catch (parseError) {
@@ -902,38 +894,31 @@ function parseTagData(tagData) {
         }
       }
       
-      // CRITICAL FIX: Process display tags for timeline translation even in header mode
-      if (isDisplayTag && displayTranslator && tagHeader.length >= 0) {
+      // NEW: Process display tags for timeline translation even in header mode
+      if (isDisplayTag && displayParser && displayTranslator && tagHeader.length >= 0) {
         try {
-          // Initialize display parser just for display translation if not already available
-          if (!displayParser && typeof DisplayParsers !== 'undefined') {
-            displayParser = new DisplayParsers();
-          }
+          const contentOffset = offset + tagHeader.headerSize;
+          const parsedContent = displayParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
           
-          if (displayParser) {
-            const contentOffset = offset + tagHeader.headerSize;
-            const parsedContent = displayParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
-            
-            if (parsedContent && parsedContent.data) {
-              try {
-                let displayObject = null;
-                
-                // Process different display tag types
-                if (tagHeader.type === 4 || tagHeader.type === 26 || tagHeader.type === 70) { // PlaceObject variants
-                  displayObject = displayTranslator.translatePlaceObject(parsedContent.data, window.translatedShapeData);
-                } else if (tagHeader.type === 5 || tagHeader.type === 28) { // RemoveObject variants
-                  displayObject = displayTranslator.translateRemoveObject(parsedContent.data);
-                } else if (tagHeader.type === 1) { // ShowFrame
-                  displayObject = displayTranslator.translateShowFrame(parsedContent.data);
-                }
-                
-                if (displayObject) {
-                  window.translatedDisplayData.set(displayObject.depth || translatedDisplayCount, displayObject);
-                  translatedDisplayCount++;
-                }
-              } catch (translationError) {
-                // Silent failure in header mode - translation errors don't affect header display
+          if (parsedContent && parsedContent.data) {
+            try {
+              let displayObject = null;
+              
+              // Process different display tag types
+              if (tagHeader.type === 4 || tagHeader.type === 26 || tagHeader.type === 70) { // PlaceObject variants
+                displayObject = displayTranslator.translatePlaceObject(parsedContent.data, window.translatedShapeData);
+              } else if (tagHeader.type === 5 || tagHeader.type === 28) { // RemoveObject variants
+                displayObject = displayTranslator.translateRemoveObject(parsedContent.data);
+              } else if (tagHeader.type === 1) { // ShowFrame
+                displayObject = displayTranslator.translateShowFrame(parsedContent.data);
               }
+              
+              if (displayObject) {
+                window.translatedDisplayData.set(displayObject.depth || translatedDisplayCount, displayObject);
+                translatedDisplayCount++;
+              }
+            } catch (translationError) {
+              // Silent failure in header mode - translation errors don't affect header display
             }
           }
         } catch (parseError) {
