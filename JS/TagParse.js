@@ -1,5 +1,5 @@
 /* 
- * SWF Tag Parser - v3.1
+ * SWF Tag Parser - v3.2
  * Supports:
  * - Tag header parsing (type and length)
  * - Short and long format tag headers
@@ -24,6 +24,7 @@
  * - ENHANCED: Added PlaceObject3 support (Tag 70)
  * - ADDED: Scaling grid parsing support (Tag 78)
  * - ENHANCED: Added AS3Parsers integration for comprehensive ActionScript 3.0 support
+ * - ENHANCED: Automatic translator implementation for real-time translation
  */
 
 // Global variables for tag filtering
@@ -365,6 +366,10 @@ function parseTagData(tagData) {
   let morphParser = null;
   let scalingParser = null;
   
+  // Initialize translators if needed
+  let shapeTranslator = null;
+  let displayTranslator = null;
+  
   if (window.showContentParsing || window.showErrorsOnly) {
     if (typeof ControlParsers !== 'undefined') {
       controlParser = new ControlParsers();
@@ -405,6 +410,14 @@ function parseTagData(tagData) {
     if (typeof ScalingParsers !== 'undefined') {
       scalingParser = new ScalingParsers();
     }
+    
+    // Initialize translators for automatic translation
+    if (typeof ShapeParserTranslator !== 'undefined') {
+      shapeTranslator = new ShapeParserTranslator();
+    }
+    if (typeof DisplayParserTranslator !== 'undefined') {
+      displayTranslator = new DisplayParserTranslator();
+    }
   }
   
   // Different output format based on mode
@@ -432,6 +445,7 @@ function parseTagData(tagData) {
   let unparsedContentTags = 0;
   let errorContentTags = 0;
   let skippedByFilter = 0;
+  let translatedTags = 0;
   
   while (offset < tagData.length) {
     const tagHeader = parseTagHeader(tagData, offset);
@@ -524,8 +538,39 @@ function parseTagData(tagData) {
               output.push(`ERROR: ${parsedContent.error}`);
             }
             
+            // Automatic translator implementation - call translators with real parsed data
+            let translationResult = null;
+            try {
+              if (shapeTranslator && isShapeTag && parsedContent.data && !parsedContent.error) {
+                translationResult = shapeTranslator.translateShapeData(parsedContent);
+                if (translationResult && translationResult.success) {
+                  translatedTags++;
+                  output.push("\n--- AUTOMATIC TRANSLATION ---");
+                  output.push("Shape data translated to WebGL format");
+                  output.push(`Render Commands: ${translationResult.renderCommands.length} operations`);
+                  if (translationResult.translatedShape) {
+                    output.push(`Shape Bounds: ${translationResult.translatedShape.bounds.width}×${translationResult.translatedShape.bounds.height} px`);
+                    output.push(`Complexity: ${translationResult.translatedShape.complexity}`);
+                  }
+                }
+              } else if (displayTranslator && isDisplayTag && parsedContent.data && !parsedContent.error) {
+                translationResult = displayTranslator.translateDisplayData(parsedContent);
+                if (translationResult && translationResult.success) {
+                  translatedTags++;
+                  output.push("\n--- AUTOMATIC TRANSLATION ---");
+                  output.push("Display data translated to WebGL format");
+                  output.push(`Render Commands: ${translationResult.renderCommands.length} operations`);
+                  if (translationResult.displayListState) {
+                    output.push(`Display List Objects: ${translationResult.displayListState.length}`);
+                  }
+                }
+              }
+            } catch (translationError) {
+              output.push(`Translation failed: ${translationError.message}`);
+            }
+            
             if (parsedContent.data && Object.keys(parsedContent.data).length > 0) {
-              output.push("Content:");
+              output.push("\nContent:");
               
               // Safe content formatting with stack overflow protection
               const formatContentDataSafe = (data, indent = "  ", depth = 0, visited = new WeakSet()) => {
@@ -759,6 +804,7 @@ function parseTagData(tagData) {
     output.push(`\n==============================`);
     output.push(`Total tags scanned: ${tagIndex}`);
     output.push(`Tags with parsed content: ${parsedContentTags}`);
+    output.push(`Tags automatically translated: ${translatedTags}`);
     
     if (skippedByFilter > 0) {
       output.push(`Tags filtered out: ${skippedByFilter}`);
@@ -767,6 +813,10 @@ function parseTagData(tagData) {
     if (parsedContentTags === 0) {
       output.push("\nNo tags could be parsed for content.");
       output.push("Supported tag types: Control, Display, Asset, ActionScript, Shape, Sprite, Font, Text, Bitmap, Sound, Button, Video, Morph, and Scaling tags");
+    }
+    
+    if (translatedTags > 0) {
+      output.push(`\nAutomatic translation enabled: ${translatedTags} tags converted to WebGL format`);
     }
     
   } else if (window.showUnparsedOnly) {
