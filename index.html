@@ -275,7 +275,7 @@
 
   <!-- Translation Info Notice -->
   <div class="translation-info">
-    <strong>Simplified Rendering Pipeline:</strong> Upload SWF → Parse & Translate → Click "Start WebGL Rendering" to display. The button enables automatically when translated data is available.
+    <strong>Re-implemented Rendering Pipeline:</strong> Upload SWF → Parse & Translate → WebGL Initializes → Click "Start WebGL Rendering" to display. Much simpler implementation that only starts when SWF is uploaded.
   </div>
 
   <!-- Canvas Container -->
@@ -283,12 +283,12 @@
     <h3>WebGL Renderer Output</h3>
     <canvas id="renderCanvas" class="render-canvas" width="800" height="600"></canvas>
     <div class="canvas-controls">
-      <button class="button render-button" id="renderButton" disabled>No Translated Data</button>
+      <button class="button render-button" id="renderButton" disabled>Upload SWF First</button>
       <button class="button" id="clearCanvasButton">Clear Canvas</button>
       <button class="button" id="resizeCanvasButton">Resize Canvas</button>
     </div>
     <div class="canvas-info" id="canvasInfo">
-      Canvas: 800×600 | WebGL: Initializing... | Translated data: None available
+      Canvas: 800×600 | WebGL: Not initialized | Upload an SWF file to begin
     </div>
   </div>
 
@@ -437,7 +437,7 @@
       <div class="terminal-header">
         <h3 class="terminal-title">Renderer Output</h3>
       </div>
-      <div class="terminal" id="rendererOutput">WebGL renderer initializing...</div>
+      <div class="terminal" id="rendererOutput">WebGL renderer not initialized - upload SWF to begin</div>
     </div>
   </div>
 
@@ -466,8 +466,8 @@
   <script src="JS/translators/ShapeParserTranslator.js"></script>
   <script src="JS/translators/DisplayParserTranslator.js"></script>
   
-  <!-- Load renderer BEFORE any initialization code -->
-  <script src="JS/renderer/WebGLRenderer.js"></script>
+  <!-- Load renderer AFTER SWF upload, not here -->
+  <!-- <script src="JS/renderer/WebGLRenderer.js"></script> -->
   
   <!-- Load core parsing files -->
   <script src="JS/TagParse.js"></script>
@@ -475,16 +475,9 @@
   <!-- Load Parse.js LAST as it runs commands from other files -->
   <script src="JS/Parse.js"></script>
 
-  <!-- Define updateCanvasInfo BEFORE initializing WebGL renderer -->
-  <script>
-    window.updateCanvasInfo = function() {
-      console.log("updateCanvasInfo placeholder called during initialization");
-    };
-  </script>
-
   <!-- Initialize everything after all scripts are loaded -->
   <script>
-    // Wait for DOM to be ready and ensure script loading order
+    // Wait for DOM to be ready
     document.addEventListener('DOMContentLoaded', function() {
       setTimeout(initializeApplication, 200);
     });
@@ -518,9 +511,10 @@
       window.tagTypeFilter = null;
       window.currentFileBuffer = null;
       window.translatedDataStorage = null;
-      window.webglRenderer = null;
+      window.webglRenderer = null; // Don't initialize until SWF upload
+      window.swfUploaded = false;
 
-      // Define the complete updateCanvasInfo function
+      // Simple updateCanvasInfo function
       window.updateCanvasInfo = function() {
         if (window.webglRenderer) {
           const stats = window.webglRenderer.getStats();
@@ -530,27 +524,94 @@
           
           canvasInfo.textContent = 
             `Canvas: ${stats.canvasSize} | WebGL: ${stats.isInitialized ? 'Ready' : 'Not ready'} | ` +
-            `Translated data: ${translatedDataStatus} | Display objects: ${stats.displayListSize}`;
+            `Translated data: ${translatedDataStatus}`;
+        } else if (window.swfUploaded) {
+          canvasInfo.textContent = 'Canvas: 800×600 | WebGL: Initializing... | Processing SWF file';
+        } else {
+          canvasInfo.textContent = 'Canvas: 800×600 | WebGL: Not initialized | Upload an SWF file to begin';
         }
       };
 
-      // Initialize WebGL renderer
-      try {
-        if (typeof WebGLRenderer !== 'undefined') {
-          window.webglRenderer = new WebGLRenderer(renderCanvas);
-          rendererOutput.textContent = window.webglRenderer.getOutput();
-          updateCanvasInfo();
+      // Simple function to initialize WebGL only when needed
+      function initializeWebGLRenderer() {
+        if (window.webglRenderer) return; // Already initialized
+        
+        try {
+          rendererOutput.textContent = 'Initializing WebGL renderer for uploaded SWF...';
           
-          if (window.webglRenderer && typeof updateCanvasInfo === 'function') {
-            window.webglRenderer.setUIUpdateCallback(updateCanvasInfo);
-          }
-        } else {
-          throw new Error("WebGLRenderer class not found - script loading issue");
+          // Load the WebGL renderer script dynamically
+          const script = document.createElement('script');
+          script.src = 'JS/renderer/WebGLRenderer.js';
+          script.onload = function() {
+            if (typeof WebGLRenderer !== 'undefined') {
+              window.webglRenderer = new WebGLRenderer(renderCanvas);
+              rendererOutput.textContent = window.webglRenderer.getOutput();
+              updateCanvasInfo();
+              
+              // Set up simple button state management
+              updateRenderButtonState();
+              
+              // Connect UI callback
+              if (window.webglRenderer && typeof updateCanvasInfo === 'function') {
+                window.webglRenderer.setUIUpdateCallback(updateCanvasInfo);
+              }
+              
+              console.log("WebGL renderer initialized after SWF upload");
+            } else {
+              throw new Error("WebGLRenderer class not found after script load");
+            }
+          };
+          script.onerror = function() {
+            rendererOutput.textContent = 'Failed to load WebGL renderer script';
+          };
+          document.head.appendChild(script);
+          
+        } catch (error) {
+          rendererOutput.textContent = `WebGL Renderer initialization failed: ${error.message}`;
+          console.error("WebGL Renderer initialization error:", error);
         }
-      } catch (error) {
-        rendererOutput.textContent = `WebGL Renderer initialization failed: ${error.message}\nPlease refresh the page to retry.`;
-        console.error("WebGL Renderer initialization error:", error);
       }
+
+      // Simple button state management - just check if SWF uploaded and data available
+      function updateRenderButtonState() {
+        if (!window.swfUploaded) {
+          renderButton.disabled = true;
+          renderButton.textContent = 'Upload SWF First';
+          renderButton.style.backgroundColor = '#6c757d';
+          return;
+        }
+        
+        if (!window.webglRenderer) {
+          renderButton.disabled = true;
+          renderButton.textContent = 'WebGL Initializing...';
+          renderButton.style.backgroundColor = '#6c757d';
+          return;
+        }
+        
+        if (window.translatedDataStorage && Object.keys(window.translatedDataStorage).length > 0) {
+          renderButton.disabled = false;
+          renderButton.textContent = 'Start WebGL Rendering';
+          renderButton.style.backgroundColor = '#28a745';
+        } else {
+          renderButton.disabled = true;
+          renderButton.textContent = 'Processing SWF...';
+          renderButton.style.backgroundColor = '#6c757d';
+        }
+      }
+
+      // Simple data storage function - just store and update button
+      window.storeTranslatedData = function(translatedData) {
+        if (!window.translatedDataStorage) {
+          window.translatedDataStorage = {};
+        }
+        
+        const timestamp = Date.now();
+        window.translatedDataStorage[timestamp] = translatedData;
+        
+        // Update button state when data arrives
+        updateRenderButtonState();
+        updateCanvasInfo();
+      };
 
       // Helper function to reset filter UI
       function resetFilterUI() {
@@ -676,10 +737,9 @@
         reparseCurrentFile();
       });
 
-      // Simplified canvas control functionality
+      // Simple render button - just start WebGL rendering
       renderButton.addEventListener('click', function() {
-        if (window.webglRenderer) {
-          // Use the simplified startRendering method
+        if (window.webglRenderer && window.webglRenderer.startRendering) {
           const success = window.webglRenderer.startRendering();
           rendererOutput.textContent = window.webglRenderer.getOutput();
           updateCanvasInfo();
@@ -714,19 +774,6 @@
         }
       });
 
-      // Simplified data storage for rendering
-      window.storeTranslatedData = function(translatedData) {
-        if (!window.translatedDataStorage) {
-          window.translatedDataStorage = {};
-        }
-        
-        const timestamp = Date.now();
-        window.translatedDataStorage[timestamp] = translatedData;
-        
-        // The simplified WebGL renderer will automatically handle button state
-        updateCanvasInfo();
-      };
-
       // Reset specific tag when category changes
       categoryFilter.addEventListener('change', function() {
         if (categoryFilter.value !== 'all') {
@@ -754,7 +801,7 @@
         }
       }
 
-      // Simplified SWF file upload handler
+      // Simple SWF file upload handler - initialize WebGL when SWF uploaded
       document.getElementById('SWF-Input').addEventListener('change', async function(event) {
         const file = event.target.files[0];
         if (!file) {
@@ -776,7 +823,8 @@
           if (terminal) {
             terminal.textContent = 'Error: File is not in SWF file format. Please use only SWF files.';
           }
-          window.start = false;
+          window.swfUploaded = false;
+          updateRenderButtonState();
           return;
         }
 
@@ -784,22 +832,21 @@
         if (terminal) {
           terminal.textContent = 'Determined that file is in SWF format...\nReading file...';
         }
-        window.start = true;
 
         try {
           const arrayBuffer = await file.arrayBuffer();
           window.currentFileBuffer = arrayBuffer;
           
-          // Clear previous translated data and reset renderer using simplified API
+          // Clear previous data
           window.translatedDataStorage = null;
-          if (window.webglRenderer && typeof window.webglRenderer.resetForNewSWF === 'function') {
-            window.webglRenderer.resetForNewSWF();
-          }
           
-          // Notify renderer that SWF is uploaded
-          if (window.webglRenderer && typeof window.webglRenderer.onSWFUploaded === 'function') {
-            window.webglRenderer.onSWFUploaded();
-          }
+          // Set SWF uploaded flag
+          window.swfUploaded = true;
+          updateRenderButtonState();
+          updateCanvasInfo();
+          
+          // Initialize WebGL renderer now that SWF is uploaded
+          initializeWebGLRenderer();
           
           const parsedInfo = parseSWFSignature(arrayBuffer);
           const tagInfo = parseSWFTags(arrayBuffer);
@@ -813,11 +860,13 @@
           if (terminal) {
             terminal.textContent = 'Error reading SWF file: ' + err.message;
           }
+          window.swfUploaded = false;
+          updateRenderButtonState();
         }
       });
 
       // Initial setup complete
-      console.log("Flash-JS application initialized with simplified WebGL renderer");
+      console.log("Flash-JS application initialized - WebGL will initialize when SWF is uploaded");
     }
   </script>
 </body>
