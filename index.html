@@ -275,7 +275,7 @@
 
   <!-- Translation Info Notice -->
   <div class="translation-info">
-    <strong>Re-implemented Rendering Pipeline:</strong> Upload SWF → Parse & Translate → WebGL Initializes → Click "Start WebGL Rendering" to display. Much simpler implementation that only starts when SWF is uploaded.
+    <strong>Re-implemented Rendering Pipeline:</strong> Upload SWF → Parse & Translate → WebGL Initializes → Click "Start WebGL Rendering" to display. Much simpler implementation that only start[...]
   </div>
 
   <!-- Canvas Container -->
@@ -599,7 +599,7 @@
         }
       }
 
-      // Simple data storage function - just store and update button
+      // Enhanced data storage function - now properly connects to WebGLRenderer
       window.storeTranslatedData = function(translatedData) {
         if (!window.translatedDataStorage) {
           window.translatedDataStorage = {};
@@ -607,6 +607,18 @@
         
         const timestamp = Date.now();
         window.translatedDataStorage[timestamp] = translatedData;
+        
+        // CRITICAL FIX: Properly connect translated data to WebGLRenderer
+        if (window.webglRenderer && typeof window.webglRenderer.processSWFTranslatedData === 'function') {
+          try {
+            window.webglRenderer.processSWFTranslatedData(translatedData);
+            console.log("Translated data processed by WebGL renderer:", translatedData.tagType || 'Unknown');
+          } catch (error) {
+            console.error("Error processing translated data:", error, translatedData);
+          }
+        } else {
+          console.log("WebGL renderer not ready, storing data for later processing");
+        }
         
         // Update button state when data arrives
         updateRenderButtonState();
@@ -801,7 +813,7 @@
         }
       }
 
-      // Simple SWF file upload handler - initialize WebGL when SWF uploaded
+      // Enhanced SWF file upload handler - properly processes already stored data
       document.getElementById('SWF-Input').addEventListener('change', async function(event) {
         const file = event.target.files[0];
         if (!file) {
@@ -856,6 +868,24 @@
           }
           
           updateCanvasInfo();
+          
+          // CRITICAL FIX: Process any translated data that was stored before renderer was ready
+          if (window.webglRenderer && window.translatedDataStorage) {
+            setTimeout(() => {
+              console.log("Processing stored translated data after renderer initialization");
+              for (const [timestamp, translatedData] of Object.entries(window.translatedDataStorage)) {
+                try {
+                  window.webglRenderer.processSWFTranslatedData(translatedData);
+                  console.log("Processed stored data:", translatedData.tagType || 'Unknown');
+                } catch (error) {
+                  console.error("Error processing stored data:", error, translatedData);
+                }
+              }
+              updateRenderButtonState();
+              updateCanvasInfo();
+            }, 500); // Give renderer time to fully initialize
+          }
+          
         } catch (err) {
           if (terminal) {
             terminal.textContent = 'Error reading SWF file: ' + err.message;
