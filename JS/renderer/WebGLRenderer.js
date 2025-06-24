@@ -1,13 +1,11 @@
 /* 
- * WebGL SWF Renderer - v1.2
+ * WebGL SWF Renderer - v1.3
  * Final stage of the Flash-JS rendering pipeline
  * Takes pre-processed data from translators and renders to WebGL canvas
  * Only works with translated data - no parsing or translation logic
  * Handles shapes, display lists, transformations, and advanced features
- * ENHANCED: Auto-consumption of translated data with automatic rendering pipeline
- * FIXED: Removed duplicate class definition that was breaking script loading
- * FIXED: updateCanvasInfo timing issue - now handles deferred UI updates properly
- * FIXED: Removed overly restrictive SWF loading checks - responds to actual data
+ * SIMPLIFIED: Removed complex button management - button simply starts WebGL rendering
+ * FIXED: Button unlocks when SWF is uploaded and translated data is available
  */
 class WebGLRenderer {
   constructor(canvas) {
@@ -22,21 +20,17 @@ class WebGLRenderer {
     this.isInitialized = false;
     this.output = [];
     
-    // Auto-rendering pipeline - FIXED: Respond to actual data, not SWF loading
+    // Simplified rendering pipeline
     this.autoRenderEnabled = true;
     this.translatedDataQueue = [];
     this.renderingInProgress = false;
     this.totalTranslatedItems = 0;
     
-    // UI update handling - FIXED: Better timing management
+    // Simplified UI update handling
     this.pendingUIUpdates = [];
     this.uiUpdateCallback = null;
     this.uiReadyCheckCount = 0;
-    this.maxUIReadyChecks = 50; // Maximum attempts to find updateCanvasInfo
-    
-    // FIXED: Render button state management - respond to data availability
-    this.renderButtonStateUpdated = false;
-    this.pendingButtonUpdates = [];
+    this.maxUIReadyChecks = 50;
     
     // WebGL state
     this.vertexBuffer = null;
@@ -83,13 +77,13 @@ class WebGLRenderer {
       this.clear();
       
       this.isInitialized = true;
-      this.output.push("WebGL renderer ready for translated data");
-      this.output.push("Waiting for SWF parsing and translation...");
+      this.output.push("WebGL renderer ready");
+      this.output.push("Waiting for SWF file upload...");
       
-      // Setup automatic data consumption
-      this.setupAutoDataConsumption();
+      // Simple auto-consumption setup
+      this.setupDataConsumption();
       
-      // FIXED: Start UI ready checking with proper timing
+      // Start UI ready checking
       this.startUIReadyCheck();
       
     } catch (error) {
@@ -98,11 +92,9 @@ class WebGLRenderer {
     }
   }
 
-  setupAutoDataConsumption() {
-    // FIXED: Only override storage function if it doesn't exist
-    // Don't interfere with existing Parse.js → TagParse.js → Translation flow
+  setupDataConsumption() {
+    // Simple data consumption - just count translated items
     if (typeof window.storeTranslatedData !== 'function') {
-      // Create the storage function with auto-consumption
       window.storeTranslatedData = (translatedData) => {
         if (!window.translatedDataStorage) {
           window.translatedDataStorage = {};
@@ -111,53 +103,43 @@ class WebGLRenderer {
         const timestamp = Date.now();
         window.translatedDataStorage[timestamp] = translatedData;
         
-        // Auto-consume in renderer
-        this.consumeTranslatedData(translatedData);
-        
-        // Try to update UI, or queue the update for later
+        // Simple counting and button update
+        this.totalTranslatedItems++;
+        this.updateButtonState();
         this.requestUIUpdate();
       };
       
-      this.output.push("Auto-consumption pipeline created");
-    } else {
-      this.output.push("Auto-consumption pipeline using existing storage function");
+      this.output.push("Data consumption pipeline ready");
     }
   }
 
-  // ==================== UI UPDATE HANDLING - FIXED ====================
+  // ==================== SIMPLIFIED UI HANDLING ====================
 
   startUIReadyCheck() {
-    // Start checking for updateCanvasInfo availability with proper timing
     this.checkUIReady();
   }
 
   checkUIReady() {
     this.uiReadyCheckCount++;
     
-    // Try to find updateCanvasInfo function
     if (typeof updateCanvasInfo === 'function') {
-      this.output.push("UI callback connection established successfully");
       this.setUIUpdateCallback(updateCanvasInfo);
       return true;
     } else if (typeof window.updateCanvasInfo === 'function') {
-      this.output.push("UI callback connection established via window object");
       this.setUIUpdateCallback(window.updateCanvasInfo);
       return true;
     }
     
-    // If not found and haven't exceeded max attempts, try again
     if (this.uiReadyCheckCount < this.maxUIReadyChecks) {
       setTimeout(() => this.checkUIReady(), 100);
       return false;
     } else {
-      this.output.push("UI callback connection timeout - updateCanvasInfo not found");
-      this.output.push("UI updates will be queued until callback is manually set");
+      this.output.push("UI callback timeout - will queue updates");
       return false;
     }
   }
 
   requestUIUpdate() {
-    // FIXED: Safe UI update handling with proper error checking
     if (this.uiUpdateCallback && typeof this.uiUpdateCallback === 'function') {
       try {
         this.uiUpdateCallback();
@@ -177,24 +159,15 @@ class WebGLRenderer {
         this.output.push(`Window UI update error: ${error.message}`);
       }
     } else {
-      // Queue the update for when the UI is ready
       this.pendingUIUpdates.push(Date.now());
-      // Don't spam the output with these messages
-      if (this.pendingUIUpdates.length === 1) {
-        this.output.push("UI update queued - updateCanvasInfo not yet available");
-      }
     }
   }
 
   setUIUpdateCallback(callback) {
     this.uiUpdateCallback = callback;
     
-    // Process any pending UI updates
     if (this.pendingUIUpdates.length > 0) {
-      this.output.push(`Processing ${this.pendingUIUpdates.length} pending UI updates`);
       this.pendingUIUpdates = [];
-      
-      // Call the callback safely
       try {
         callback();
       } catch (error) {
@@ -202,147 +175,38 @@ class WebGLRenderer {
       }
     }
     
-    // FIXED: Process button updates if we have data
-    if (this.totalTranslatedItems > 0) {
-      this.processPendingButtonUpdates();
-    }
+    // Update button state when UI is ready
+    this.updateButtonState();
   }
 
-  consumeTranslatedData(translatedData) {
-    if (!this.isInitialized) {
-      this.output.push("Renderer not ready - queueing translated data");
-      this.translatedDataQueue.push(translatedData);
-      return;
-    }
+  // ==================== SIMPLIFIED BUTTON MANAGEMENT ====================
 
-    this.totalTranslatedItems++;
-    this.output.push(`Auto-consuming translated data item #${this.totalTranslatedItems}`);
-    this.output.push(`Data type: ${translatedData.tagType || 'Unknown'}`);
-
-    // Add to rendering queue
-    this.translatedDataQueue.push(translatedData);
-
-    // Enable auto-rendering if we have data
-    if (this.autoRenderEnabled && !this.renderingInProgress) {
-      this.startAutoRendering();
-    }
-  }
-
-  startAutoRendering() {
-    if (this.translatedDataQueue.length === 0) {
-      return;
-    }
-
-    this.renderingInProgress = true;
-    this.output.push("Starting automatic rendering...");
-    this.output.push(`Processing ${this.translatedDataQueue.length} translated data items`);
-
-    // Process all queued data
-    this.processQueuedData();
-
-    // FIXED: Update UI when we have translated data
-    this.updateRenderingUI();
-
-    this.renderingInProgress = false;
-    this.output.push("Automatic rendering pipeline completed");
-  }
-
-  processQueuedData() {
-    while (this.translatedDataQueue.length > 0) {
-      const translatedData = this.translatedDataQueue.shift();
-      
-      try {
-        if (translatedData.renderCommands) {
-          this.processRenderCommands(translatedData.renderCommands);
-        }
-        
-        if (translatedData.displayListState) {
-          this.updateDisplayList(translatedData.displayListState);
-        }
-        
-        this.output.push(`Processed: ${translatedData.tagType || 'Unknown type'}`);
-        
-      } catch (error) {
-        this.output.push(`Error processing data: ${error.message}`);
-      }
-    }
-  }
-
-  // FIXED: Enhanced render button state management - respond to data availability
-  updateRenderingUI() {
-    // FIXED: Update button when we have translated data, regardless of SWF loading status
-    if (this.totalTranslatedItems === 0) {
-      this.output.push("Skipping button update - no translated data available");
-      return;
-    }
-
-    const buttonUpdate = {
-      totalItems: this.totalTranslatedItems,
-      timestamp: Date.now()
-    };
-    
-    // Try to update render button immediately
+  updateButtonState() {
     const renderButton = document.getElementById('renderButton');
-    if (renderButton) {
+    if (!renderButton) return;
+    
+    // Simple logic: enable button when we have translated data
+    if (window.translatedDataStorage && Object.keys(window.translatedDataStorage).length > 0) {
       renderButton.disabled = false;
-      renderButton.textContent = `Render ${this.totalTranslatedItems} Items`;
+      renderButton.textContent = `Start WebGL Rendering`;
       renderButton.style.backgroundColor = '#28a745';
-      this.renderButtonStateUpdated = true;
-      this.output.push(`Render button enabled - ${this.totalTranslatedItems} items ready`);
+      this.output.push("Render button enabled - translated data available");
     } else {
-      // Queue the button update for later
-      this.pendingButtonUpdates.push(buttonUpdate);
-      this.output.push("Render button not found - queueing update for translated data");
-    }
-    
-    // Request UI update through the proper channel
-    this.requestUIUpdate();
-  }
-
-  // FIXED: Process pending button updates when data is available
-  processPendingButtonUpdates() {
-    if (this.pendingButtonUpdates.length > 0) {
-      this.output.push(`Processing ${this.pendingButtonUpdates.length} pending button updates for translated data`);
-      
-      const renderButton = document.getElementById('renderButton');
-      if (renderButton && this.totalTranslatedItems > 0) {
-        renderButton.disabled = false;
-        renderButton.textContent = `Render ${this.totalTranslatedItems} Items`;
-        renderButton.style.backgroundColor = '#28a745';
-        this.renderButtonStateUpdated = true;
-        this.output.push(`Render button enabled after delay - ${this.totalTranslatedItems} items ready`);
-        
-        // Clear pending updates
-        this.pendingButtonUpdates = [];
-      }
+      renderButton.disabled = true;
+      renderButton.textContent = 'No Translated Data';
+      renderButton.style.backgroundColor = '#6c757d';
     }
   }
 
-  // FIXED: Force render button update method - if we have data
-  forceUpdateRenderButton() {
-    const renderButton = document.getElementById('renderButton');
-    if (renderButton && this.totalTranslatedItems > 0) {
-      renderButton.disabled = false;
-      renderButton.textContent = `Render ${this.totalTranslatedItems} Items`;
-      renderButton.style.backgroundColor = '#28a745';
-      this.renderButtonStateUpdated = true;
-      this.output.push(`Render button force-updated - ${this.totalTranslatedItems} items ready`);
-      return true;
-    }
-    return false;
-  }
-
-  // FIXED: Minimal reset method - only clear rendering state, don't break data flow
+  // Called when new SWF is uploaded
   resetForNewSWF() {
     this.totalTranslatedItems = 0;
     this.translatedDataQueue = [];
-    this.renderButtonStateUpdated = false;
-    this.pendingButtonUpdates = [];
     this.displayList.clear();
     this.shapeCache.clear();
     this.pathCache.clear();
     
-    // Reset render button to disabled state
+    // Reset button to disabled state
     const renderButton = document.getElementById('renderButton');
     if (renderButton) {
       renderButton.disabled = true;
@@ -352,6 +216,12 @@ class WebGLRenderer {
     
     this.output.push("Renderer reset for new SWF file");
     this.clear();
+  }
+
+  // Called when SWF is uploaded (from index.html)
+  onSWFUploaded() {
+    this.output.push("SWF file uploaded - waiting for translation...");
+    // Button will be enabled automatically when translated data arrives
   }
 
   initShaders() {
@@ -473,39 +343,36 @@ class WebGLRenderer {
 
   // ==================== MAIN RENDERING ENTRY POINT ====================
 
-  renderTranslatedData(translatedData) {
+  startRendering() {
     try {
-      this.output.push("Manual Rendering Triggered:");
-      this.output.push("===========================");
+      this.output.push("WebGL Rendering Started:");
+      this.output.push("========================");
       
       if (!this.isInitialized) {
         this.output.push("Error: Renderer not initialized");
         return false;
       }
       
-      // If no specific data provided, render all queued data
-      if (!translatedData) {
-        if (window.translatedDataStorage) {
-          this.output.push("Rendering all stored translated data");
-          
-          // Clear previous frame
-          this.clear();
-          
-          // Render all stored data
-          for (const [timestamp, data] of Object.entries(window.translatedDataStorage)) {
-            this.renderSingleItem(data, timestamp);
-          }
-          
-          this.output.push(`Rendered ${Object.keys(window.translatedDataStorage).length} translated items`);
-          return true;
-        } else {
-          this.output.push("Error: No translated data available");
-          return false;
+      if (!window.translatedDataStorage || Object.keys(window.translatedDataStorage).length === 0) {
+        this.output.push("Error: No translated data available");
+        return false;
+      }
+      
+      this.output.push("Rendering all translated data...");
+      
+      // Clear previous frame
+      this.clear();
+      
+      // Render all stored data
+      let renderedCount = 0;
+      for (const [timestamp, data] of Object.entries(window.translatedDataStorage)) {
+        if (this.renderSingleItem(data, timestamp)) {
+          renderedCount++;
         }
       }
       
-      // Render specific translated data
-      return this.renderSingleItem(translatedData);
+      this.output.push(`Successfully rendered ${renderedCount} items`);
+      return renderedCount > 0;
       
     } catch (error) {
       this.output.push(`Rendering error: ${error.message}`);
@@ -526,9 +393,6 @@ class WebGLRenderer {
       if (translatedData.displayListState) {
         this.updateDisplayList(translatedData.displayListState);
       }
-      
-      // Execute all pending render commands
-      this.executeRenderCommands();
       
       return true;
       
@@ -990,11 +854,6 @@ class WebGLRenderer {
 
   // ==================== UTILITY METHODS ====================
 
-  executeRenderCommands() {
-    // All render commands are executed immediately in this implementation
-    // This method exists for potential future batching optimizations
-  }
-
   updateDisplayList(displayListState) {
     if (!displayListState || !Array.isArray(displayListState)) {
       return;
@@ -1040,18 +899,6 @@ class WebGLRenderer {
     }
   }
 
-  // ==================== AUTO-RENDERING CONTROLS ====================
-
-  enableAutoRendering() {
-    this.autoRenderEnabled = true;
-    this.output.push("Auto-rendering enabled");
-  }
-
-  disableAutoRendering() {
-    this.autoRenderEnabled = false;
-    this.output.push("Auto-rendering disabled");
-  }
-
   // ==================== DEBUG AND OUTPUT ====================
 
   getDebugOutput() {
@@ -1071,17 +918,15 @@ class WebGLRenderer {
       queuedItems: this.translatedDataQueue.length,
       pendingUIUpdates: this.pendingUIUpdates.length,
       uiCallbackReady: this.uiUpdateCallback !== null,
-      uiReadyCheckCount: this.uiReadyCheckCount,
-      renderButtonStateUpdated: this.renderButtonStateUpdated,
-      pendingButtonUpdates: this.pendingButtonUpdates.length
+      uiReadyCheckCount: this.uiReadyCheckCount
     };
   }
 
   // ==================== PUBLIC API ====================
 
-  // Main rendering method for translated data
-  render(translatedData) {
-    return this.renderTranslatedData(translatedData);
+  // Main rendering method - simplified to just start rendering
+  render() {
+    return this.startRendering();
   }
 
   // Get current status
