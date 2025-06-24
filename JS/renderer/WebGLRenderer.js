@@ -7,6 +7,7 @@
  * SIMPLIFIED: Removed complex button management - button simply starts WebGL rendering
  * FIXED: Button unlocks when SWF is uploaded and translated data is available
  * FIXED: Now properly renders actual SWF first frame content instead of placeholder shapes
+ * FIXED: Enhanced processSWFTranslatedData to handle proper translator format with linking metadata
  */
 class WebGLRenderer {
   constructor(canvas) {
@@ -109,7 +110,7 @@ class WebGLRenderer {
         const timestamp = Date.now();
         window.translatedDataStorage[timestamp] = translatedData;
         
-        // Store actual SWF content for proper rendering
+        // Store actual SWF content for proper rendering with enhanced format handling
         this.processSWFTranslatedData(translatedData);
         
         // Simple counting and button update
@@ -122,34 +123,86 @@ class WebGLRenderer {
     }
   }
 
-  // ==================== SWF CONTENT PROCESSING ====================
+  // ==================== ENHANCED SWF CONTENT PROCESSING ====================
 
   processSWFTranslatedData(translatedData) {
     try {
       this.output.push(`Processing SWF data: ${translatedData.tagType || 'Unknown'}`);
       
-      // Process shape definitions
+      // Handle shape definitions (from ShapeParserTranslator)
       if (translatedData.translatedShape) {
-        this.swfShapes.set(translatedData.translatedShape.shapeId, translatedData.translatedShape);
-        this.output.push(`Stored shape ${translatedData.translatedShape.shapeId}: ${translatedData.translatedShape.bounds.width}×${translatedData.translatedShape.bounds.height}px`);
+        const shape = translatedData.translatedShape;
+        this.swfShapes.set(shape.shapeId, shape);
+        this.output.push(`Stored shape ${shape.shapeId}: ${shape.bounds.width}×${shape.bounds.height}px`);
       }
       
-      // Process display list changes
-      if (translatedData.displayListState) {
+      // Handle enhanced display commands (from TagParse.js with proper linking metadata)
+      if (translatedData.isDisplayCommand && translatedData.characterId !== undefined && translatedData.depth !== undefined) {
+        const displayObj = {
+          characterId: translatedData.characterId,
+          depth: translatedData.depth,
+          hasTransform: translatedData.renderCommands && translatedData.renderCommands.some(cmd => cmd.transform),
+          tagType: translatedData.tagType
+        };
+        
+        this.swfDisplayList.set(translatedData.depth, displayObj);
+        this.output.push(`Enhanced display command: Character ${translatedData.characterId} at depth ${translatedData.depth}`);
+      }
+      
+      // Handle legacy display list state (from DisplayParserTranslator)
+      if (translatedData.displayListState && Array.isArray(translatedData.displayListState)) {
         translatedData.displayListState.forEach(displayObj => {
           this.swfDisplayList.set(displayObj.depth, displayObj);
+          this.output.push(`Legacy display object: Character ${displayObj.characterId} at depth ${displayObj.depth}`);
         });
-        this.output.push(`Updated display list: ${translatedData.displayListState.length} objects`);
+        this.output.push(`Updated display list: ${translatedData.displayListState.length} objects from translator`);
       }
       
-      // Process render commands for immediate use
-      if (translatedData.renderCommands) {
-        this.renderCommands.push(...translatedData.renderCommands);
-        this.output.push(`Added ${translatedData.renderCommands.length} render commands`);
+      // Handle individual render commands from translators
+      if (translatedData.renderCommands && Array.isArray(translatedData.renderCommands)) {
+        // Group render commands by type for better processing
+        const placeCommands = translatedData.renderCommands.filter(cmd => cmd.type === "place_object");
+        const removeCommands = translatedData.renderCommands.filter(cmd => cmd.type === "remove_object");
+        const otherCommands = translatedData.renderCommands.filter(cmd => 
+          cmd.type !== "place_object" && cmd.type !== "remove_object"
+        );
+        
+        // Process place commands to build display list
+        placeCommands.forEach(cmd => {
+          if (cmd.characterId !== undefined && cmd.depth !== undefined) {
+            const displayObj = {
+              characterId: cmd.characterId,
+              depth: cmd.depth,
+              hasTransform: cmd.transform && !cmd.transform.isIdentity,
+              tagType: translatedData.tagType,
+              transform: cmd.transform,
+              operation: cmd.operation
+            };
+            
+            this.swfDisplayList.set(cmd.depth, displayObj);
+            this.output.push(`Render command display: Character ${cmd.characterId} at depth ${cmd.depth} (${cmd.operation})`);
+          }
+        });
+        
+        // Process remove commands
+        removeCommands.forEach(cmd => {
+          if (cmd.depth !== undefined) {
+            this.swfDisplayList.delete(cmd.depth);
+            this.output.push(`Removed object at depth ${cmd.depth}`);
+          }
+        });
+        
+        // Store other render commands for shape rendering
+        this.renderCommands.push(...otherCommands);
+        this.output.push(`Added ${translatedData.renderCommands.length} render commands (${placeCommands.length} place, ${removeCommands.length} remove, ${otherCommands.length} other)`);
       }
+      
+      // Provide summary of current state
+      this.output.push(`Current state: ${this.swfShapes.size} shapes, ${this.swfDisplayList.size} display objects, ${this.renderCommands.length} render commands`);
       
     } catch (error) {
       this.output.push(`Error processing SWF data: ${error.message}`);
+      console.error("SWF processing error:", error, translatedData);
     }
   }
 
@@ -441,7 +494,7 @@ class WebGLRenderer {
           this.output.push(`Rendering shape ${displayObject.characterId} at depth ${depth}`);
           
           // Apply display object transform if present
-          if (displayObject.hasTransform) {
+          if (displayObject.hasTransform && displayObject.transform) {
             this.pushTransform(displayObject.transform);
           }
           
@@ -451,11 +504,13 @@ class WebGLRenderer {
           }
           
           // Restore transform
-          if (displayObject.hasTransform) {
+          if (displayObject.hasTransform && displayObject.transform) {
             this.popTransform();
           }
           
           renderedObjects++;
+        } else {
+          this.output.push(`Warning: Shape ${displayObject.characterId} not found for depth ${depth}`);
         }
       }
       
