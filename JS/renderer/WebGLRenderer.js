@@ -7,7 +7,7 @@
  * ENHANCED: Auto-consumption of translated data with automatic rendering pipeline
  * FIXED: Removed duplicate class definition that was breaking script loading
  * FIXED: updateCanvasInfo timing issue - now handles deferred UI updates properly
- * FIXED: Render button state management - now properly enables when data is available
+ * FIXED: Render button state management - now properly waits for SWF loading
  */
 class WebGLRenderer {
   constructor(canvas) {
@@ -22,11 +22,12 @@ class WebGLRenderer {
     this.isInitialized = false;
     this.output = [];
     
-    // Auto-rendering pipeline
+    // Auto-rendering pipeline - FIXED: Wait for SWF loading
     this.autoRenderEnabled = true;
     this.translatedDataQueue = [];
     this.renderingInProgress = false;
     this.totalTranslatedItems = 0;
+    this.swfLoaded = false; // FIXED: Track if SWF has been loaded
     
     // UI update handling - FIXED: Better timing management
     this.pendingUIUpdates = [];
@@ -34,9 +35,10 @@ class WebGLRenderer {
     this.uiReadyCheckCount = 0;
     this.maxUIReadyChecks = 50; // Maximum attempts to find updateCanvasInfo
     
-    // FIXED: Render button state management
+    // FIXED: Render button state management - wait for SWF
     this.renderButtonStateUpdated = false;
     this.pendingButtonUpdates = [];
+    this.shouldUpdateButton = false; // FIXED: Only update when we have data
     
     // WebGL state
     this.vertexBuffer = null;
@@ -84,7 +86,7 @@ class WebGLRenderer {
       
       this.isInitialized = true;
       this.output.push("WebGL renderer ready for translated data");
-      this.output.push("Auto-rendering pipeline enabled");
+      this.output.push("Waiting for SWF file to be loaded...");
       
       // Setup automatic data consumption
       this.setupAutoDataConsumption();
@@ -121,6 +123,12 @@ class WebGLRenderer {
         
         const timestamp = Date.now();
         window.translatedDataStorage[timestamp] = translatedData;
+        
+        // FIXED: Mark that SWF is loaded when we get first translated data
+        if (!this.swfLoaded) {
+          this.swfLoaded = true;
+          this.output.push("SWF loaded and translation started");
+        }
         
         // Auto-consume in renderer
         this.consumeTranslatedData(translatedData);
@@ -211,8 +219,10 @@ class WebGLRenderer {
       }
     }
     
-    // FIXED: Process any pending button updates
-    this.processPendingButtonUpdates();
+    // FIXED: Only process button updates if we have data and SWF is loaded
+    if (this.swfLoaded && this.totalTranslatedItems > 0) {
+      this.processPendingButtonUpdates();
+    }
   }
 
   consumeTranslatedData(translatedData) {
@@ -220,6 +230,12 @@ class WebGLRenderer {
       this.output.push("Renderer not ready - queueing translated data");
       this.translatedDataQueue.push(translatedData);
       return;
+    }
+
+    // FIXED: Mark SWF as loaded when we receive first data
+    if (!this.swfLoaded) {
+      this.swfLoaded = true;
+      this.output.push("SWF file loaded and translation pipeline active");
     }
 
     this.totalTranslatedItems++;
@@ -247,8 +263,10 @@ class WebGLRenderer {
     // Process all queued data
     this.processQueuedData();
 
-    // Update UI to show rendering is available
-    this.updateRenderingUI();
+    // FIXED: Only update UI if SWF is loaded
+    if (this.swfLoaded) {
+      this.updateRenderingUI();
+    }
 
     this.renderingInProgress = false;
     this.output.push("Automatic rendering pipeline completed");
@@ -275,8 +293,14 @@ class WebGLRenderer {
     }
   }
 
-  // FIXED: Enhanced render button state management
+  // FIXED: Enhanced render button state management - only when SWF loaded
   updateRenderingUI() {
+    // FIXED: Don't update button unless SWF is loaded and we have data
+    if (!this.swfLoaded || this.totalTranslatedItems === 0) {
+      this.output.push("Skipping button update - no SWF loaded or no translated data");
+      return;
+    }
+
     const buttonUpdate = {
       totalItems: this.totalTranslatedItems,
       timestamp: Date.now()
@@ -284,28 +308,32 @@ class WebGLRenderer {
     
     // Try to update render button immediately
     const renderButton = document.getElementById('renderButton');
-    if (renderButton && this.totalTranslatedItems > 0) {
+    if (renderButton) {
       renderButton.disabled = false;
       renderButton.textContent = `Render ${this.totalTranslatedItems} Items`;
       renderButton.style.backgroundColor = '#28a745';
       this.renderButtonStateUpdated = true;
-      this.output.push(`Render button enabled - ${this.totalTranslatedItems} items ready`);
-    } else if (!renderButton) {
+      this.shouldUpdateButton = true;
+      this.output.push(`Render button enabled - ${this.totalTranslatedItems} items ready from SWF`);
+    } else {
       // Queue the button update for later
       this.pendingButtonUpdates.push(buttonUpdate);
-      this.output.push("Render button not found - queueing update");
-    } else {
-      this.output.push("No translated items to render");
+      this.shouldUpdateButton = true;
+      this.output.push("Render button not found - queueing update for SWF data");
     }
     
     // Request UI update through the proper channel
     this.requestUIUpdate();
   }
 
-  // FIXED: Process pending button updates when UI becomes available
+  // FIXED: Process pending button updates only when SWF is loaded
   processPendingButtonUpdates() {
+    if (!this.swfLoaded || !this.shouldUpdateButton) {
+      return;
+    }
+
     if (this.pendingButtonUpdates.length > 0) {
-      this.output.push(`Processing ${this.pendingButtonUpdates.length} pending button updates`);
+      this.output.push(`Processing ${this.pendingButtonUpdates.length} pending button updates for SWF data`);
       
       const renderButton = document.getElementById('renderButton');
       if (renderButton && this.totalTranslatedItems > 0) {
@@ -313,7 +341,7 @@ class WebGLRenderer {
         renderButton.textContent = `Render ${this.totalTranslatedItems} Items`;
         renderButton.style.backgroundColor = '#28a745';
         this.renderButtonStateUpdated = true;
-        this.output.push(`Render button enabled after delay - ${this.totalTranslatedItems} items ready`);
+        this.output.push(`Render button enabled after delay - ${this.totalTranslatedItems} SWF items ready`);
         
         // Clear pending updates
         this.pendingButtonUpdates = [];
@@ -321,18 +349,48 @@ class WebGLRenderer {
     }
   }
 
-  // FIXED: Force render button update method for external calls
+  // FIXED: Force render button update method - only if SWF loaded
   forceUpdateRenderButton() {
+    if (!this.swfLoaded) {
+      this.output.push("Cannot update render button - no SWF file loaded yet");
+      return false;
+    }
+
     const renderButton = document.getElementById('renderButton');
     if (renderButton && this.totalTranslatedItems > 0) {
       renderButton.disabled = false;
       renderButton.textContent = `Render ${this.totalTranslatedItems} Items`;
       renderButton.style.backgroundColor = '#28a745';
       this.renderButtonStateUpdated = true;
-      this.output.push(`Render button force-updated - ${this.totalTranslatedItems} items ready`);
+      this.shouldUpdateButton = true;
+      this.output.push(`Render button force-updated - ${this.totalTranslatedItems} SWF items ready`);
       return true;
     }
     return false;
+  }
+
+  // FIXED: Reset method for when new SWF is loaded
+  resetForNewSWF() {
+    this.swfLoaded = false;
+    this.totalTranslatedItems = 0;
+    this.translatedDataQueue = [];
+    this.renderButtonStateUpdated = false;
+    this.shouldUpdateButton = false;
+    this.pendingButtonUpdates = [];
+    this.displayList.clear();
+    this.shapeCache.clear();
+    this.pathCache.clear();
+    
+    // Reset render button to disabled state
+    const renderButton = document.getElementById('renderButton');
+    if (renderButton) {
+      renderButton.disabled = true;
+      renderButton.textContent = 'No Translated Data';
+      renderButton.style.backgroundColor = '#6c757d';
+    }
+    
+    this.output.push("Renderer reset for new SWF file");
+    this.clear();
   }
 
   initShaders() {
@@ -463,11 +521,16 @@ class WebGLRenderer {
         this.output.push("Error: Renderer not initialized");
         return false;
       }
+
+      if (!this.swfLoaded) {
+        this.output.push("Error: No SWF file loaded - cannot render");
+        return false;
+      }
       
       // If no specific data provided, render all queued data
       if (!translatedData) {
         if (window.translatedDataStorage) {
-          this.output.push("Rendering all stored translated data");
+          this.output.push("Rendering all stored translated data from SWF");
           
           // Clear previous frame
           this.clear();
@@ -477,10 +540,10 @@ class WebGLRenderer {
             this.renderSingleItem(data, timestamp);
           }
           
-          this.output.push(`Rendered ${Object.keys(window.translatedDataStorage).length} translated items`);
+          this.output.push(`Rendered ${Object.keys(window.translatedDataStorage).length} translated items from SWF`);
           return true;
         } else {
-          this.output.push("Error: No translated data available");
+          this.output.push("Error: No translated data available from SWF");
           return false;
         }
       }
@@ -1054,7 +1117,9 @@ class WebGLRenderer {
       uiCallbackReady: this.uiUpdateCallback !== null,
       uiReadyCheckCount: this.uiReadyCheckCount,
       renderButtonStateUpdated: this.renderButtonStateUpdated,
-      pendingButtonUpdates: this.pendingButtonUpdates.length
+      pendingButtonUpdates: this.pendingButtonUpdates.length,
+      swfLoaded: this.swfLoaded,
+      shouldUpdateButton: this.shouldUpdateButton
     };
   }
 
@@ -1078,6 +1143,16 @@ class WebGLRenderer {
   // Get performance information
   getStats() {
     return this.getPerformanceStats();
+  }
+
+  // Check if SWF is loaded
+  isSWFLoaded() {
+    return this.swfLoaded;
+  }
+
+  // Reset for new SWF (public method)
+  reset() {
+    this.resetForNewSWF();
   }
 }
 
