@@ -275,7 +275,7 @@
 
   <!-- Translation Info Notice -->
   <div class="translation-info">
-    <strong>Automatic Rendering Pipeline:</strong> Parse SWF → Translate to WebGL format → Auto-consume in Renderer → Click "Start Rendering" to display. The renderer automatically processes all[...]
+    <strong>Simplified Rendering Pipeline:</strong> Upload SWF → Parse & Translate → Click "Start WebGL Rendering" to display. The button enables automatically when translated data is available.
   </div>
 
   <!-- Canvas Container -->
@@ -475,12 +475,9 @@
   <!-- Load Parse.js LAST as it runs commands from other files -->
   <script src="JS/Parse.js"></script>
 
-  <!-- FIXED: Define updateCanvasInfo BEFORE initializing WebGL renderer -->
+  <!-- Define updateCanvasInfo BEFORE initializing WebGL renderer -->
   <script>
-    // CRITICAL FIX: Define updateCanvasInfo globally before any initialization
     window.updateCanvasInfo = function() {
-      // This is a placeholder that will be overridden by the full implementation
-      // but ensures the function exists during WebGL renderer initialization
       console.log("updateCanvasInfo placeholder called during initialization");
     };
   </script>
@@ -489,7 +486,6 @@
   <script>
     // Wait for DOM to be ready and ensure script loading order
     document.addEventListener('DOMContentLoaded', function() {
-      // FIXED: Longer delay to ensure all scripts are fully loaded and parsed
       setTimeout(initializeApplication, 200);
     });
     
@@ -524,7 +520,7 @@
       window.translatedDataStorage = null;
       window.webglRenderer = null;
 
-      // FIXED: Define the complete updateCanvasInfo function NOW, before renderer initialization
+      // Define the complete updateCanvasInfo function
       window.updateCanvasInfo = function() {
         if (window.webglRenderer) {
           const stats = window.webglRenderer.getStats();
@@ -534,19 +530,17 @@
           
           canvasInfo.textContent = 
             `Canvas: ${stats.canvasSize} | WebGL: ${stats.isInitialized ? 'Ready' : 'Not ready'} | ` +
-            `Translated data: ${translatedDataStatus} | Display objects: ${stats.displayListSize} | ` +
-            `Auto-processed: ${stats.totalTranslatedItems || 0} items`;
+            `Translated data: ${translatedDataStatus} | Display objects: ${stats.displayListSize}`;
         }
       };
 
-      // Initialize WebGL renderer with better error handling and timing
+      // Initialize WebGL renderer
       try {
         if (typeof WebGLRenderer !== 'undefined') {
           window.webglRenderer = new WebGLRenderer(renderCanvas);
           rendererOutput.textContent = window.webglRenderer.getOutput();
           updateCanvasInfo();
           
-          // FIXED: Establish UI callback connection once both renderer and UI are ready
           if (window.webglRenderer && typeof updateCanvasInfo === 'function') {
             window.webglRenderer.setUIUpdateCallback(updateCanvasInfo);
           }
@@ -574,8 +568,6 @@
       toggleButton.addEventListener('click', function() {
         window.showAllTags = !window.showAllTags;
         toggleButton.textContent = window.showAllTags ? 'Show Important Tags' : 'Show All Tags';
-        
-        // Re-parse if file is loaded
         reparseCurrentFile();
       });
 
@@ -586,13 +578,10 @@
         if (window.showContentParsing) {
           contentButton.textContent = 'Show Tag Headers';
           contentButton.classList.add('active');
-          // Show filter controls when in content mode
           filterContainer.classList.remove('hidden');
-          // Hide other buttons when in content mode
           toggleButton.style.display = 'none';
           unparsedButton.style.display = 'none';
           errorButton.style.display = 'none';
-          // Reset other modes
           window.showUnparsedOnly = false;
           window.showErrorsOnly = false;
           unparsedButton.classList.remove('active');
@@ -600,17 +589,13 @@
         } else {
           contentButton.textContent = 'Show Parsed Content Only';
           contentButton.classList.remove('active');
-          // Hide filter controls when not in content mode
           filterContainer.classList.add('hidden');
-          // Reset filter when leaving content mode
           resetFilterUI();
-          // Show other buttons when back in header mode
           toggleButton.style.display = 'inline-block';
           unparsedButton.style.display = 'inline-block';
           errorButton.style.display = 'inline-block';
         }
         
-        // Re-parse if file is loaded
         reparseCurrentFile();
       });
 
@@ -621,14 +606,11 @@
         if (window.showUnparsedOnly) {
           unparsedButton.textContent = 'Show All Tags';
           unparsedButton.classList.add('active');
-          // Hide other buttons when in unparsed mode
           toggleButton.style.display = 'none';
           contentButton.style.display = 'none';
           errorButton.style.display = 'none';
           filterContainer.classList.add('hidden');
-          // Reset filter when entering unparsed mode
           resetFilterUI();
-          // Reset other modes
           window.showContentParsing = false;
           window.showErrorsOnly = false;
           contentButton.classList.remove('active');
@@ -636,13 +618,11 @@
         } else {
           unparsedButton.textContent = 'Show Unparsed Tags';
           unparsedButton.classList.remove('active');
-          // Show other buttons when back to normal mode
           toggleButton.style.display = 'inline-block';
           contentButton.style.display = 'inline-block';
           errorButton.style.display = 'inline-block';
         }
         
-        // Re-parse if file is loaded
         reparseCurrentFile();
       });
 
@@ -653,13 +633,10 @@
         if (window.showErrorsOnly) {
           errorButton.textContent = 'Show All Tags';
           errorButton.classList.add('active');
-          // Show filter controls when in error mode
           filterContainer.classList.remove('hidden');
-          // Hide other buttons when in error mode
           toggleButton.style.display = 'none';
           contentButton.style.display = 'none';
           unparsedButton.style.display = 'none';
-          // Reset other modes
           window.showContentParsing = false;
           window.showUnparsedOnly = false;
           contentButton.classList.remove('active');
@@ -667,17 +644,13 @@
         } else {
           errorButton.textContent = 'Show Parser Errors';
           errorButton.classList.remove('active');
-          // Hide filter controls when not in error mode
           filterContainer.classList.add('hidden');
-          // Reset filter when leaving error mode
           resetFilterUI();
-          // Show other buttons when back to normal mode
           toggleButton.style.display = 'inline-block';
           contentButton.style.display = 'inline-block';
           unparsedButton.style.display = 'inline-block';
         }
         
-        // Re-parse if file is loaded
         reparseCurrentFile();
       });
 
@@ -687,39 +660,34 @@
         const specificValue = specificTagFilter.value;
         
         if (specificValue !== 'all') {
-          // Specific tag filter takes precedence
           window.tagTypeFilter = {
             type: 'specific',
             tagType: parseInt(specificValue)
           };
         } else if (categoryValue !== 'all') {
-          // Category filter
           window.tagTypeFilter = {
             type: 'category',
             category: categoryValue
           };
         } else {
-          // No filter
           window.tagTypeFilter = null;
         }
         
-        // Re-parse if file is loaded
         reparseCurrentFile();
       });
 
-      // Canvas control functionality - updated for auto-consumption
+      // Simplified canvas control functionality
       renderButton.addEventListener('click', function() {
         if (window.webglRenderer) {
-          // Render all available translated data automatically
-          const success = window.webglRenderer.render();
+          // Use the simplified startRendering method
+          const success = window.webglRenderer.startRendering();
           rendererOutput.textContent = window.webglRenderer.getOutput();
           updateCanvasInfo();
           
           if (success) {
-            renderButton.textContent = 'Render Complete';
+            renderButton.textContent = 'Rendering Complete';
             setTimeout(() => {
-              const stats = window.webglRenderer.getStats();
-              renderButton.textContent = `Render ${stats.totalTranslatedItems || 0} Items`;
+              renderButton.textContent = 'Start WebGL Rendering';
             }, 2000);
           }
         }
@@ -746,19 +714,16 @@
         }
       });
 
-      // Store translated data for rendering - UPDATED for auto-consumption
+      // Simplified data storage for rendering
       window.storeTranslatedData = function(translatedData) {
         if (!window.translatedDataStorage) {
           window.translatedDataStorage = {};
         }
         
-        // Store by timestamp to maintain order
         const timestamp = Date.now();
         window.translatedDataStorage[timestamp] = translatedData;
         
-        // The WebGL renderer will automatically consume this data via its auto-consumption system
-        // No need to manually enable the render button - it happens automatically
-        
+        // The simplified WebGL renderer will automatically handle button state
         updateCanvasInfo();
       };
 
@@ -789,6 +754,7 @@
         }
       }
 
+      // Simplified SWF file upload handler
       document.getElementById('SWF-Input').addEventListener('change', async function(event) {
         const file = event.target.files[0];
         if (!file) {
@@ -824,24 +790,16 @@
           const arrayBuffer = await file.arrayBuffer();
           window.currentFileBuffer = arrayBuffer;
           
-          // FIXED: Clear previous translated data and properly reset renderer using its API
+          // Clear previous translated data and reset renderer using simplified API
           window.translatedDataStorage = null;
           if (window.webglRenderer && typeof window.webglRenderer.resetForNewSWF === 'function') {
-            // Use the proper reset method from WebGLRenderer
             window.webglRenderer.resetForNewSWF();
-          } else if (window.webglRenderer) {
-            // Fallback if method doesn't exist - clear manually but don't touch button
-            window.webglRenderer.clear();
-            if (window.webglRenderer.displayList) {
-              window.webglRenderer.displayList.clear();
-            }
-            if (window.webglRenderer.shapeCache) {
-              window.webglRenderer.shapeCache.clear();
-            }
           }
           
-          // FIXED: Don't manually reset render button - let the renderer handle it
-          // The resetForNewSWF() method will properly reset the button state
+          // Notify renderer that SWF is uploaded
+          if (window.webglRenderer && typeof window.webglRenderer.onSWFUploaded === 'function') {
+            window.webglRenderer.onSWFUploaded();
+          }
           
           const parsedInfo = parseSWFSignature(arrayBuffer);
           const tagInfo = parseSWFTags(arrayBuffer);
@@ -859,7 +817,7 @@
       });
 
       // Initial setup complete
-      console.log("Flash-JS application initialized with auto-consumption pipeline and UI callback connection");
+      console.log("Flash-JS application initialized with simplified WebGL renderer");
     }
   </script>
 </body>
