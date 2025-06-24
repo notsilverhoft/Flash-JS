@@ -7,6 +7,7 @@
  * ENHANCED: Auto-consumption of translated data with automatic rendering pipeline
  * FIXED: Removed duplicate class definition that was breaking script loading
  * FIXED: updateCanvasInfo timing issue - now handles deferred UI updates properly
+ * FIXED: Render button state management - now properly enables when data is available
  */
 class WebGLRenderer {
   constructor(canvas) {
@@ -32,6 +33,10 @@ class WebGLRenderer {
     this.uiUpdateCallback = null;
     this.uiReadyCheckCount = 0;
     this.maxUIReadyChecks = 50; // Maximum attempts to find updateCanvasInfo
+    
+    // FIXED: Render button state management
+    this.renderButtonStateUpdated = false;
+    this.pendingButtonUpdates = [];
     
     // WebGL state
     this.vertexBuffer = null;
@@ -205,6 +210,9 @@ class WebGLRenderer {
         this.output.push(`UI callback error: ${error.message}`);
       }
     }
+    
+    // FIXED: Process any pending button updates
+    this.processPendingButtonUpdates();
   }
 
   consumeTranslatedData(translatedData) {
@@ -267,17 +275,64 @@ class WebGLRenderer {
     }
   }
 
+  // FIXED: Enhanced render button state management
   updateRenderingUI() {
-    // Update render button to show data is ready
+    const buttonUpdate = {
+      totalItems: this.totalTranslatedItems,
+      timestamp: Date.now()
+    };
+    
+    // Try to update render button immediately
     const renderButton = document.getElementById('renderButton');
-    if (renderButton) {
+    if (renderButton && this.totalTranslatedItems > 0) {
       renderButton.disabled = false;
       renderButton.textContent = `Render ${this.totalTranslatedItems} Items`;
       renderButton.style.backgroundColor = '#28a745';
+      this.renderButtonStateUpdated = true;
+      this.output.push(`Render button enabled - ${this.totalTranslatedItems} items ready`);
+    } else if (!renderButton) {
+      // Queue the button update for later
+      this.pendingButtonUpdates.push(buttonUpdate);
+      this.output.push("Render button not found - queueing update");
+    } else {
+      this.output.push("No translated items to render");
     }
     
     // Request UI update through the proper channel
     this.requestUIUpdate();
+  }
+
+  // FIXED: Process pending button updates when UI becomes available
+  processPendingButtonUpdates() {
+    if (this.pendingButtonUpdates.length > 0) {
+      this.output.push(`Processing ${this.pendingButtonUpdates.length} pending button updates`);
+      
+      const renderButton = document.getElementById('renderButton');
+      if (renderButton && this.totalTranslatedItems > 0) {
+        renderButton.disabled = false;
+        renderButton.textContent = `Render ${this.totalTranslatedItems} Items`;
+        renderButton.style.backgroundColor = '#28a745';
+        this.renderButtonStateUpdated = true;
+        this.output.push(`Render button enabled after delay - ${this.totalTranslatedItems} items ready`);
+        
+        // Clear pending updates
+        this.pendingButtonUpdates = [];
+      }
+    }
+  }
+
+  // FIXED: Force render button update method for external calls
+  forceUpdateRenderButton() {
+    const renderButton = document.getElementById('renderButton');
+    if (renderButton && this.totalTranslatedItems > 0) {
+      renderButton.disabled = false;
+      renderButton.textContent = `Render ${this.totalTranslatedItems} Items`;
+      renderButton.style.backgroundColor = '#28a745';
+      this.renderButtonStateUpdated = true;
+      this.output.push(`Render button force-updated - ${this.totalTranslatedItems} items ready`);
+      return true;
+    }
+    return false;
   }
 
   initShaders() {
@@ -997,7 +1052,9 @@ class WebGLRenderer {
       queuedItems: this.translatedDataQueue.length,
       pendingUIUpdates: this.pendingUIUpdates.length,
       uiCallbackReady: this.uiUpdateCallback !== null,
-      uiReadyCheckCount: this.uiReadyCheckCount
+      uiReadyCheckCount: this.uiReadyCheckCount,
+      renderButtonStateUpdated: this.renderButtonStateUpdated,
+      pendingButtonUpdates: this.pendingButtonUpdates.length
     };
   }
 
