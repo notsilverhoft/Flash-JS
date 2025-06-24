@@ -1,5 +1,5 @@
 /* 
- * SWF Tag Parser - v3.4
+ * SWF Tag Parser - v3.5
  * Supports:
  * - Tag header parsing (type and length)
  * - Short and long format tag headers
@@ -28,6 +28,7 @@
  * - ENHANCED: WebGL renderer integration for complete rendering pipeline
  * - FIXED: Syntax error in canBeParsed variable definition that was breaking script loading
  * - FIXED: Complete canBeParsed variable definition for proper tag type checking
+ * - FIXED: Removed dependency between filter button and translation - translation now happens automatically
  */
 
 // Global variables for tag filtering
@@ -354,7 +355,7 @@ function parseTagData(tagData) {
   const output = [];
   const unknownTags = new Set();
   
-  // Initialize content parsers if needed
+  // Initialize content parsers and translators ALWAYS (not just in content parsing mode)
   let controlParser = null;
   let displayParser = null;
   let assetParser = null;
@@ -369,58 +370,57 @@ function parseTagData(tagData) {
   let morphParser = null;
   let scalingParser = null;
   
-  // Initialize translators if needed
+  // Initialize translators for automatic translation (ALWAYS, not just in content mode)
   let shapeTranslator = null;
   let displayTranslator = null;
   
-  if (window.showContentParsing || window.showErrorsOnly) {
-    if (typeof ControlParsers !== 'undefined') {
-      controlParser = new ControlParsers();
-    }
-    if (typeof DisplayParsers !== 'undefined') {
-      displayParser = new DisplayParsers();
-    }
-    if (typeof AssetParsers !== 'undefined') {
-      assetParser = new AssetParsers();
-    }
-    if (typeof ShapeParsers !== 'undefined') {
-      shapeParser = new ShapeParsers();
-    }
-    if (typeof SpriteParsers !== 'undefined') {
-      spriteParser = new SpriteParsers();
-    }
-    if (typeof FontParsers !== 'undefined') {
-      fontParser = new FontParsers();
-    }
-    if (typeof TextParsers !== 'undefined') {
-      textParser = new TextParsers();
-    }
-    if (typeof BitmapParsers !== 'undefined') {
-      bitmapParser = new BitmapParsers();
-    }
-    if (typeof SoundParsers !== 'undefined') {
-      soundParser = new SoundParsers();
-    }
-    if (typeof ButtonParsers !== 'undefined') {
-      buttonParser = new ButtonParsers();
-    }
-    if (typeof VideoParsers !== 'undefined') {
-      videoParser = new VideoParsers();
-    }
-    if (typeof MorphParsers !== 'undefined') {
-      morphParser = new MorphParsers();
-    }
-    if (typeof ScalingParsers !== 'undefined') {
-      scalingParser = new ScalingParsers();
-    }
-    
-    // Initialize translators for automatic translation
-    if (typeof ShapeParserTranslator !== 'undefined') {
-      shapeTranslator = new ShapeParserTranslator();
-    }
-    if (typeof DisplayParserTranslator !== 'undefined') {
-      displayTranslator = new DisplayParserTranslator();
-    }
+  // Always initialize parsers and translators regardless of display mode
+  if (typeof ControlParsers !== 'undefined') {
+    controlParser = new ControlParsers();
+  }
+  if (typeof DisplayParsers !== 'undefined') {
+    displayParser = new DisplayParsers();
+  }
+  if (typeof AssetParsers !== 'undefined') {
+    assetParser = new AssetParsers();
+  }
+  if (typeof ShapeParsers !== 'undefined') {
+    shapeParser = new ShapeParsers();
+  }
+  if (typeof SpriteParsers !== 'undefined') {
+    spriteParser = new SpriteParsers();
+  }
+  if (typeof FontParsers !== 'undefined') {
+    fontParser = new FontParsers();
+  }
+  if (typeof TextParsers !== 'undefined') {
+    textParser = new TextParsers();
+  }
+  if (typeof BitmapParsers !== 'undefined') {
+    bitmapParser = new BitmapParsers();
+  }
+  if (typeof SoundParsers !== 'undefined') {
+    soundParser = new SoundParsers();
+  }
+  if (typeof ButtonParsers !== 'undefined') {
+    buttonParser = new ButtonParsers();
+  }
+  if (typeof VideoParsers !== 'undefined') {
+    videoParser = new VideoParsers();
+  }
+  if (typeof MorphParsers !== 'undefined') {
+    morphParser = new MorphParsers();
+  }
+  if (typeof ScalingParsers !== 'undefined') {
+    scalingParser = new ScalingParsers();
+  }
+  
+  // Initialize translators for automatic translation (ALWAYS)
+  if (typeof ShapeParserTranslator !== 'undefined') {
+    shapeTranslator = new ShapeParserTranslator();
+  }
+  if (typeof DisplayParserTranslator !== 'undefined') {
+    displayTranslator = new DisplayParserTranslator();
   }
   
   // Different output format based on mode
@@ -497,6 +497,66 @@ function parseTagData(tagData) {
     // Determine if we should display this tag based on mode
     const shouldDisplay = window.showAllTags || isImportant || isUnknown;
     
+    // AUTOMATIC TRANSLATION HAPPENS ALWAYS (not just in content parsing mode)
+    // Parse and translate important tags regardless of display mode to enable WebGL rendering
+    if (canBeParsed && tagHeader.length >= 0 && (isShapeTag || isDisplayTag)) {
+      try {
+        const contentOffset = offset + tagHeader.headerSize;
+        let parsedContent = null;
+        
+        if (displayParser && isDisplayTag) {
+          parsedContent = displayParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
+        } else if (shapeParser && isShapeTag) {
+          parsedContent = shapeParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
+        }
+        
+        if (parsedContent && !parsedContent.error) {
+          // Automatic translator implementation - runs ALWAYS for shape and display tags
+          let translationResult = null;
+          try {
+            if (shapeTranslator && isShapeTag && parsedContent.data) {
+              translationResult = shapeTranslator.translateShapeData(parsedContent);
+              if (translationResult && translationResult.success) {
+                translatedTags++;
+                
+                // Store translated data for renderer (ALWAYS)
+                if (typeof window.storeTranslatedData === 'function') {
+                  window.storeTranslatedData(translationResult);
+                  
+                  // Only show translation message in content parsing mode
+                  if (window.showContentParsing) {
+                    output.push("Translated data stored for rendering");
+                  }
+                }
+              }
+            } else if (displayTranslator && isDisplayTag && parsedContent.data) {
+              translationResult = displayTranslator.translateDisplayData(parsedContent);
+              if (translationResult && translationResult.success) {
+                translatedTags++;
+                
+                // Store translated data for renderer (ALWAYS)
+                if (typeof window.storeTranslatedData === 'function') {
+                  window.storeTranslatedData(translationResult);
+                  
+                  // Only show translation message in content parsing mode
+                  if (window.showContentParsing) {
+                    output.push("Translated data stored for rendering");
+                  }
+                }
+              }
+            }
+          } catch (translationError) {
+            // Only show translation errors in content parsing mode
+            if (window.showContentParsing) {
+              output.push(`Translation failed: ${translationError.message}`);
+            }
+          }
+        }
+      } catch (contentError) {
+        // Ignore parsing errors when not in content mode
+      }
+    }
+    
     if (window.showContentParsing) {
       // CONTENT PARSING MODE - Only show tags that can be parsed
       if (canBeParsed && tagHeader.length >= 0) {
@@ -541,47 +601,14 @@ function parseTagData(tagData) {
               output.push(`ERROR: ${parsedContent.error}`);
             }
             
-            // Automatic translator implementation - call translators with real parsed data
-            let translationResult = null;
-            try {
-              if (shapeTranslator && isShapeTag && parsedContent.data && !parsedContent.error) {
-                translationResult = shapeTranslator.translateShapeData(parsedContent);
-                if (translationResult && translationResult.success) {
-                  translatedTags++;
-                  output.push("\n--- AUTOMATIC TRANSLATION ---");
-                  output.push("Shape data translated to WebGL format");
-                  output.push(`Render Commands: ${translationResult.renderCommands.length} operations`);
-                  if (translationResult.translatedShape) {
-                    output.push(`Shape Bounds: ${translationResult.translatedShape.bounds.width}×${translationResult.translatedShape.bounds.height} px`);
-                    output.push(`Complexity: ${translationResult.translatedShape.complexity}`);
-                  }
-                  
-                  // Store translated data for renderer
-                  if (typeof window.storeTranslatedData === 'function') {
-                    window.storeTranslatedData(translationResult);
-                    output.push("Translated data stored for rendering");
-                  }
-                }
-              } else if (displayTranslator && isDisplayTag && parsedContent.data && !parsedContent.error) {
-                translationResult = displayTranslator.translateDisplayData(parsedContent);
-                if (translationResult && translationResult.success) {
-                  translatedTags++;
-                  output.push("\n--- AUTOMATIC TRANSLATION ---");
-                  output.push("Display data translated to WebGL format");
-                  output.push(`Render Commands: ${translationResult.renderCommands.length} operations`);
-                  if (translationResult.displayListState) {
-                    output.push(`Display List Objects: ${translationResult.displayListState.length}`);
-                  }
-                  
-                  // Store translated data for renderer
-                  if (typeof window.storeTranslatedData === 'function') {
-                    window.storeTranslatedData(translationResult);
-                    output.push("Translated data stored for rendering");
-                  }
-                }
+            // Show translation results for shape and display tags (already processed above)
+            if ((isShapeTag || isDisplayTag) && !parsedContent.error) {
+              output.push("\n--- AUTOMATIC TRANSLATION ---");
+              if (isShapeTag) {
+                output.push("Shape data translated to WebGL format");
+              } else {
+                output.push("Display data translated to WebGL format");
               }
-            } catch (translationError) {
-              output.push(`Translation failed: ${translationError.message}`);
             }
             
             if (parsedContent.data && Object.keys(parsedContent.data).length > 0) {
@@ -832,7 +859,7 @@ function parseTagData(tagData) {
     
     if (translatedTags > 0) {
       output.push(`\nAutomatic translation enabled: ${translatedTags} tags converted to WebGL format`);
-      output.push("Translated data available for rendering - click 'Render Translated Data' button");
+      output.push("Translated data available for rendering - click 'Start WebGL Rendering' button");
     }
     
   } else if (window.showUnparsedOnly) {
@@ -870,6 +897,11 @@ function parseTagData(tagData) {
     
   } else {
     output.push(`Total tags parsed: ${tagIndex}, Displayed: ${displayedTags}`);
+    
+    // Always show translation summary in normal mode if any translations occurred
+    if (translatedTags > 0) {
+      output.push(`Automatic translation: ${translatedTags} tags converted to WebGL format`);
+    }
     
     if (unknownTags.size > 0) {
       output.push("------------------------------");
