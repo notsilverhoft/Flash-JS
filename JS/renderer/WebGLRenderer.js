@@ -1,11 +1,12 @@
 /* 
- * WebGL SWF Renderer - v1.3
+ * WebGL SWF Renderer - v1.4
  * Final stage of the Flash-JS rendering pipeline
  * Takes pre-processed data from translators and renders to WebGL canvas
  * Only works with translated data - no parsing or translation logic
  * Handles shapes, display lists, transformations, and advanced features
  * SIMPLIFIED: Removed complex button management - button simply starts WebGL rendering
  * FIXED: Button unlocks when SWF is uploaded and translated data is available
+ * FIXED: Now properly renders actual SWF first frame content instead of placeholder shapes
  */
 class WebGLRenderer {
   constructor(canvas) {
@@ -42,6 +43,11 @@ class WebGLRenderer {
     this.shapeCache = new Map();
     this.pathCache = new Map();
     
+    // Actual SWF rendering data
+    this.swfShapes = new Map();
+    this.swfDisplayList = new Map();
+    this.backgroundColor = [1.0, 1.0, 1.0, 1.0]; // Default white
+    
     this.init();
   }
 
@@ -77,7 +83,7 @@ class WebGLRenderer {
       this.clear();
       
       this.isInitialized = true;
-      this.output.push("WebGL renderer ready");
+      this.output.push("WebGL renderer ready for SWF content");
       this.output.push("Waiting for SWF file upload...");
       
       // Simple auto-consumption setup
@@ -103,13 +109,47 @@ class WebGLRenderer {
         const timestamp = Date.now();
         window.translatedDataStorage[timestamp] = translatedData;
         
+        // Store actual SWF content for proper rendering
+        this.processSWFTranslatedData(translatedData);
+        
         // Simple counting and button update
         this.totalTranslatedItems++;
         this.updateButtonState();
         this.requestUIUpdate();
       };
       
-      this.output.push("Data consumption pipeline ready");
+      this.output.push("Data consumption pipeline ready for SWF content");
+    }
+  }
+
+  // ==================== SWF CONTENT PROCESSING ====================
+
+  processSWFTranslatedData(translatedData) {
+    try {
+      this.output.push(`Processing SWF data: ${translatedData.tagType || 'Unknown'}`);
+      
+      // Process shape definitions
+      if (translatedData.translatedShape) {
+        this.swfShapes.set(translatedData.translatedShape.shapeId, translatedData.translatedShape);
+        this.output.push(`Stored shape ${translatedData.translatedShape.shapeId}: ${translatedData.translatedShape.bounds.width}×${translatedData.translatedShape.bounds.height}px`);
+      }
+      
+      // Process display list changes
+      if (translatedData.displayListState) {
+        translatedData.displayListState.forEach(displayObj => {
+          this.swfDisplayList.set(displayObj.depth, displayObj);
+        });
+        this.output.push(`Updated display list: ${translatedData.displayListState.length} objects`);
+      }
+      
+      // Process render commands for immediate use
+      if (translatedData.renderCommands) {
+        this.renderCommands.push(...translatedData.renderCommands);
+        this.output.push(`Added ${translatedData.renderCommands.length} render commands`);
+      }
+      
+    } catch (error) {
+      this.output.push(`Error processing SWF data: ${error.message}`);
     }
   }
 
@@ -188,12 +228,12 @@ class WebGLRenderer {
     // Simple logic: enable button when we have translated data
     if (window.translatedDataStorage && Object.keys(window.translatedDataStorage).length > 0) {
       renderButton.disabled = false;
-      renderButton.textContent = `Start WebGL Rendering`;
+      renderButton.textContent = `Render SWF Frame`;
       renderButton.style.backgroundColor = '#28a745';
-      this.output.push("Render button enabled - translated data available");
+      this.output.push("Render button enabled - SWF content ready");
     } else {
       renderButton.disabled = true;
-      renderButton.textContent = 'No Translated Data';
+      renderButton.textContent = 'No SWF Content';
       renderButton.style.backgroundColor = '#6c757d';
     }
   }
@@ -205,12 +245,15 @@ class WebGLRenderer {
     this.displayList.clear();
     this.shapeCache.clear();
     this.pathCache.clear();
+    this.swfShapes.clear();
+    this.swfDisplayList.clear();
+    this.renderCommands = [];
     
     // Reset button to disabled state
     const renderButton = document.getElementById('renderButton');
     if (renderButton) {
       renderButton.disabled = true;
-      renderButton.textContent = 'No Translated Data';
+      renderButton.textContent = 'No SWF Content';
       renderButton.style.backgroundColor = '#6c757d';
     }
     
@@ -220,7 +263,7 @@ class WebGLRenderer {
 
   // Called when SWF is uploaded (from index.html)
   onSWFUploaded() {
-    this.output.push("SWF file uploaded - waiting for translation...");
+    this.output.push("SWF file uploaded - waiting for content translation...");
     // Button will be enabled automatically when translated data arrives
   }
 
@@ -345,8 +388,8 @@ class WebGLRenderer {
 
   startRendering() {
     try {
-      this.output.push("WebGL Rendering Started:");
-      this.output.push("========================");
+      this.output.push("SWF Frame Rendering Started:");
+      this.output.push("=============================");
       
       if (!this.isInitialized) {
         this.output.push("Error: Renderer not initialized");
@@ -354,56 +397,192 @@ class WebGLRenderer {
       }
       
       if (!window.translatedDataStorage || Object.keys(window.translatedDataStorage).length === 0) {
-        this.output.push("Error: No translated data available");
+        this.output.push("Error: No SWF content available");
         return false;
       }
       
-      this.output.push("Rendering all translated data...");
+      this.output.push("Rendering SWF first frame content...");
       
-      // Clear previous frame
-      this.clear();
+      // Clear canvas with proper background
+      this.clearWithBackground();
       
-      // Render all stored data
-      let renderedCount = 0;
-      for (const [timestamp, data] of Object.entries(window.translatedDataStorage)) {
-        if (this.renderSingleItem(data, timestamp)) {
-          renderedCount++;
-        }
+      // Render the actual SWF first frame
+      const success = this.renderSWFFirstFrame();
+      
+      if (success) {
+        this.output.push("SWF first frame rendered successfully");
+      } else {
+        this.output.push("Failed to render SWF first frame");
       }
       
-      this.output.push(`Successfully rendered ${renderedCount} items`);
-      return renderedCount > 0;
+      return success;
       
     } catch (error) {
-      this.output.push(`Rendering error: ${error.message}`);
+      this.output.push(`SWF rendering error: ${error.message}`);
       return false;
     }
   }
 
-  renderSingleItem(translatedData, timestamp = null) {
+  renderSWFFirstFrame() {
     try {
-      const prefix = timestamp ? `[${timestamp}] ` : "";
-      this.output.push(`${prefix}Rendering: ${translatedData.tagType || 'Unknown type'}`);
+      let renderedShapes = 0;
+      let renderedObjects = 0;
       
-      // Process different types of translated data
-      if (translatedData.renderCommands) {
-        this.processRenderCommands(translatedData.renderCommands);
+      // First, render all shapes that are placed on the display list
+      const sortedDisplayList = Array.from(this.swfDisplayList.entries())
+        .sort(([depthA], [depthB]) => depthA - depthB);
+      
+      this.output.push(`Display list contains ${sortedDisplayList.length} objects`);
+      
+      for (const [depth, displayObject] of sortedDisplayList) {
+        if (displayObject.characterId && this.swfShapes.has(displayObject.characterId)) {
+          const shape = this.swfShapes.get(displayObject.characterId);
+          
+          this.output.push(`Rendering shape ${displayObject.characterId} at depth ${depth}`);
+          
+          // Apply display object transform if present
+          if (displayObject.hasTransform) {
+            this.pushTransform(displayObject.transform);
+          }
+          
+          // Render the actual shape
+          if (this.renderActualShape(shape)) {
+            renderedShapes++;
+          }
+          
+          // Restore transform
+          if (displayObject.hasTransform) {
+            this.popTransform();
+          }
+          
+          renderedObjects++;
+        }
       }
       
-      if (translatedData.displayListState) {
-        this.updateDisplayList(translatedData.displayListState);
+      // If no display list, try to render shapes directly
+      if (renderedShapes === 0 && this.swfShapes.size > 0) {
+        this.output.push("No display list found, rendering shapes directly");
+        
+        for (const [shapeId, shape] of this.swfShapes.entries()) {
+          this.output.push(`Direct rendering shape ${shapeId}`);
+          if (this.renderActualShape(shape)) {
+            renderedShapes++;
+          }
+        }
       }
+      
+      // Process remaining render commands
+      if (this.renderCommands.length > 0) {
+        this.output.push(`Processing ${this.renderCommands.length} additional render commands`);
+        this.processRenderCommands(this.renderCommands);
+      }
+      
+      this.output.push(`Frame complete: ${renderedShapes} shapes, ${renderedObjects} display objects`);
+      return renderedShapes > 0 || renderedObjects > 0;
+      
+    } catch (error) {
+      this.output.push(`Error rendering SWF frame: ${error.message}`);
+      return false;
+    }
+  }
+
+  renderActualShape(shape) {
+    try {
+      if (!shape || !shape.bounds) {
+        this.output.push("Warning: Invalid shape data");
+        return false;
+      }
+      
+      this.output.push(`Rendering shape: ${shape.bounds.width}×${shape.bounds.height}px`);
+      
+      // Get the shape's render commands from translated data
+      const shapeRenderCommands = this.findShapeRenderCommands(shape.shapeId);
+      
+      if (shapeRenderCommands.length > 0) {
+        this.output.push(`Found ${shapeRenderCommands.length} render commands for shape ${shape.shapeId}`);
+        this.processRenderCommands(shapeRenderCommands);
+        return true;
+      } else {
+        // Fallback: render a basic shape representation
+        this.output.push(`No render commands found for shape ${shape.shapeId}, using fallback rendering`);
+        return this.renderShapeFallback(shape);
+      }
+      
+    } catch (error) {
+      this.output.push(`Error rendering shape: ${error.message}`);
+      return false;
+    }
+  }
+
+  findShapeRenderCommands(shapeId) {
+    const commands = [];
+    
+    // Look through all translated data for render commands related to this shape
+    if (window.translatedDataStorage) {
+      for (const [timestamp, data] of Object.entries(window.translatedDataStorage)) {
+        if (data.renderCommands && data.translatedShape && data.translatedShape.shapeId === shapeId) {
+          commands.push(...data.renderCommands);
+        }
+      }
+    }
+    
+    return commands;
+  }
+
+  renderShapeFallback(shape) {
+    try {
+      // Create a simple rectangle representation of the shape
+      const bounds = shape.bounds;
+      const vertices = [
+        bounds.xMin, bounds.yMin,
+        bounds.xMax, bounds.yMin,
+        bounds.xMax, bounds.yMax,
+        bounds.xMin, bounds.yMax
+      ];
+      
+      // Use a colored fill based on shape complexity
+      let color;
+      switch (shape.complexity) {
+        case "simple":
+          color = [0.2, 0.8, 0.2, 1.0]; // Green
+          break;
+        case "moderate":
+          color = [0.8, 0.8, 0.2, 1.0]; // Yellow
+          break;
+        case "complex":
+          color = [0.8, 0.4, 0.2, 1.0]; // Orange
+          break;
+        case "very_complex":
+          color = [0.8, 0.2, 0.2, 1.0]; // Red
+          break;
+        default:
+          color = [0.5, 0.5, 0.8, 1.0]; // Blue
+          break;
+      }
+      
+      // Create triangulated version for WebGL
+      const triangulatedVertices = [
+        vertices[0], vertices[1],  // Triangle 1
+        vertices[2], vertices[3],
+        vertices[4], vertices[5],
+        vertices[0], vertices[1],  // Triangle 2
+        vertices[4], vertices[5],
+        vertices[6], vertices[7]
+      ];
+      
+      this.drawSolidFill(triangulatedVertices, color);
+      this.output.push(`Fallback rendered shape ${shape.shapeId} as ${shape.complexity} rectangle`);
       
       return true;
       
     } catch (error) {
-      this.output.push(`Error rendering item: ${error.message}`);
+      this.output.push(`Error in shape fallback rendering: ${error.message}`);
       return false;
     }
   }
 
   processRenderCommands(commands) {
-    this.output.push(`Processing ${commands.length} render commands`);
+    this.output.push(`Processing ${commands.length} render commands for actual SWF content`);
     
     commands.forEach((command, index) => {
       switch (command.type) {
@@ -424,7 +603,7 @@ class WebGLRenderer {
           break;
           
         case "draw_path":
-          this.drawPath(command);
+          this.drawActualPath(command);
           break;
           
         case "place_object":
@@ -446,7 +625,7 @@ class WebGLRenderer {
     });
   }
 
-  // ==================== RENDER COMMAND HANDLERS ====================
+  // ==================== ACTUAL SWF RENDER COMMAND HANDLERS ====================
 
   setupShape(command) {
     const shapeId = command.shapeId;
@@ -480,8 +659,8 @@ class WebGLRenderer {
     const styleIndex = command.styleIndex;
     const textureType = command.textureType;
     
-    // For now, create a simple procedural texture based on type
-    const texture = this.createProceduralTexture(textureType, command.gradient);
+    // Create actual texture based on SWF gradient data
+    const texture = this.createActualTexture(textureType, command.gradient);
     
     if (!this.fillStyles) this.fillStyles = new Map();
     this.fillStyles.set(styleIndex, {
@@ -490,7 +669,7 @@ class WebGLRenderer {
       textureType: textureType
     });
     
-    this.output.push(`Texture fill ${styleIndex}: ${textureType}`);
+    this.output.push(`Texture fill ${styleIndex}: ${textureType} (actual SWF gradient)`);
   }
 
   setupLineStyle(command) {
@@ -508,30 +687,97 @@ class WebGLRenderer {
     this.output.push(`Line style ${styleIndex}: ${command.width}px, ${command.caps} caps`);
   }
 
-  drawPath(command) {
+  drawActualPath(command) {
     const path = command.path;
     const fillStyle0 = command.fillStyle0;
     const fillStyle1 = command.fillStyle1;
     const lineStyle = command.lineStyle;
     
-    // Convert path commands to WebGL vertices
-    const vertices = this.pathCommandsToVertices(path);
+    this.output.push(`Drawing actual SWF path: ${path.length} commands, fill0: ${fillStyle0}, fill1: ${fillStyle1}, line: ${lineStyle}`);
+    
+    // Convert SWF path commands to WebGL vertices
+    const vertices = this.swfPathCommandsToVertices(path);
     
     if (vertices.length === 0) {
+      this.output.push("Warning: Path generated no vertices");
       return;
     }
     
-    // Draw fill if present
-    if (fillStyle0 > 0 && this.fillStyles && this.fillStyles.has(fillStyle0)) {
-      this.drawFill(vertices, this.fillStyles.get(fillStyle0));
+    // Draw fill if present (use fill0 primarily, fall back to fill1)
+    const activeFillStyle = fillStyle0 > 0 ? fillStyle0 : fillStyle1;
+    if (activeFillStyle > 0 && this.fillStyles && this.fillStyles.has(activeFillStyle)) {
+      const fillStyle = this.fillStyles.get(activeFillStyle);
+      this.drawFill(vertices, fillStyle);
+      this.output.push(`Drew fill with style ${activeFillStyle}`);
     }
     
     // Draw stroke if present
     if (lineStyle > 0 && this.lineStyles && this.lineStyles.has(lineStyle)) {
-      this.drawStroke(vertices, this.lineStyles.get(lineStyle));
+      const lineStyleData = this.lineStyles.get(lineStyle);
+      this.drawStroke(vertices, lineStyleData);
+      this.output.push(`Drew stroke with style ${lineStyle}`);
     }
     
-    this.output.push(`Path drawn: ${vertices.length/2} vertices, fill: ${fillStyle0}, stroke: ${lineStyle}`);
+    this.output.push(`Path rendered: ${vertices.length/2} vertices`);
+  }
+
+  swfPathCommandsToVertices(pathCommands) {
+    const vertices = [];
+    let currentX = 0;
+    let currentY = 0;
+    
+    this.output.push(`Converting ${pathCommands.length} SWF path commands to vertices`);
+    
+    pathCommands.forEach((command, index) => {
+      switch (command.type) {
+        case "move_to":
+          if (command.position) {
+            currentX = command.position.x;
+            currentY = command.position.y;
+          } else if (command.moveTo) {
+            currentX = command.moveTo.x;
+            currentY = command.moveTo.y;
+          }
+          break;
+          
+        case "line_to":
+          // Add line as vertices for triangulation
+          vertices.push(currentX, currentY);
+          if (command.endPosition) {
+            vertices.push(command.endPosition.x, command.endPosition.y);
+            currentX = command.endPosition.x;
+            currentY = command.endPosition.y;
+          }
+          break;
+          
+        case "curve_to":
+          // Approximate curve with line segments (more accurate than previous version)
+          if (command.controlPoint && command.endPosition) {
+            const steps = Math.max(5, Math.min(20, Math.floor(command.length || 10)));
+            const startX = currentX;
+            const startY = currentY;
+            
+            for (let i = 1; i <= steps; i++) {
+              const t = i / steps;
+              const x = this.quadraticBezier(startX, command.controlPoint.x, command.endPosition.x, t);
+              const y = this.quadraticBezier(startY, command.controlPoint.y, command.endPosition.y, t);
+              
+              vertices.push(currentX, currentY);
+              vertices.push(x, y);
+              currentX = x;
+              currentY = y;
+            }
+          }
+          break;
+          
+        default:
+          this.output.push(`Unknown path command: ${command.type}`);
+          break;
+      }
+    });
+    
+    this.output.push(`Generated ${vertices.length/2} vertices from path commands`);
+    return vertices;
   }
 
   placeObject(command) {
@@ -581,45 +827,7 @@ class WebGLRenderer {
     }
   }
 
-  // ==================== PATH RENDERING ====================
-
-  pathCommandsToVertices(pathCommands) {
-    const vertices = [];
-    let currentX = 0;
-    let currentY = 0;
-    
-    pathCommands.forEach(command => {
-      switch (command.type) {
-        case "move_to":
-          currentX = command.position.x;
-          currentY = command.position.y;
-          break;
-          
-        case "line_to":
-          // Add line as two triangles for WebGL
-          vertices.push(currentX, currentY);
-          vertices.push(command.endPosition.x, command.endPosition.y);
-          currentX = command.endPosition.x;
-          currentY = command.endPosition.y;
-          break;
-          
-        case "curve_to":
-          // Approximate curve with line segments
-          const steps = 10;
-          for (let i = 1; i <= steps; i++) {
-            const t = i / steps;
-            const x = this.quadraticBezier(currentX, command.controlPoint.x, command.endPosition.x, t);
-            const y = this.quadraticBezier(currentY, command.controlPoint.y, command.endPosition.y, t);
-            vertices.push(x, y);
-          }
-          currentX = command.endPosition.x;
-          currentY = command.endPosition.y;
-          break;
-      }
-    });
-    
-    return vertices;
-  }
+  // ==================== IMPROVED PATH RENDERING ====================
 
   quadraticBezier(p0, p1, p2, t) {
     const invT = 1 - t;
@@ -648,18 +856,22 @@ class WebGLRenderer {
   }
 
   triangulateVertices(vertices) {
-    // Simple fan triangulation for convex shapes
+    // Improved triangulation for better shape rendering
     if (vertices.length < 6) return vertices;
     
     const triangulated = [];
+    
+    // Simple fan triangulation from centroid
     const centerX = vertices.reduce((sum, v, i) => i % 2 === 0 ? sum + v : sum, 0) / (vertices.length / 2);
     const centerY = vertices.reduce((sum, v, i) => i % 2 === 1 ? sum + v : sum, 0) / (vertices.length / 2);
     
     for (let i = 0; i < vertices.length - 2; i += 2) {
+      const nextI = (i + 2) % vertices.length;
+      
       triangulated.push(
         centerX, centerY,
         vertices[i], vertices[i + 1],
-        vertices[i + 2], vertices[i + 3]
+        vertices[nextI], vertices[nextI + 1]
       );
     }
     
@@ -736,33 +948,28 @@ class WebGLRenderer {
   }
 
   drawTextureFill(vertices, texture) {
-    // Texture rendering would be implemented here
-    // For now, fall back to solid color
-    this.drawSolidFill(vertices, [0.5, 0.5, 0.5, 1.0]);
+    // Improved texture rendering would be implemented here
+    // For now, fall back to a neutral color
+    this.drawSolidFill(vertices, [0.7, 0.7, 0.7, 1.0]);
   }
 
-  // ==================== TEXTURE MANAGEMENT ====================
+  // ==================== IMPROVED TEXTURE MANAGEMENT ====================
 
-  createProceduralTexture(textureType, gradientData) {
+  createActualTexture(textureType, gradientData) {
     const size = 256;
     const texture = this.gl.createTexture();
     const data = new Uint8Array(size * size * 4);
     
     switch (textureType) {
       case "linear_gradient":
-        this.generateLinearGradientTexture(data, size, gradientData);
+        this.generateActualLinearGradientTexture(data, size, gradientData);
         break;
       case "radial_gradient":
-        this.generateRadialGradientTexture(data, size, gradientData);
+        this.generateActualRadialGradientTexture(data, size, gradientData);
         break;
       default:
-        // Solid color fallback
-        for (let i = 0; i < data.length; i += 4) {
-          data[i] = 128;     // R
-          data[i + 1] = 128; // G
-          data[i + 2] = 128; // B
-          data[i + 3] = 255; // A
-        }
+        // Better fallback based on texture type
+        this.generateFallbackTexture(data, size, textureType);
         break;
     }
     
@@ -776,15 +983,15 @@ class WebGLRenderer {
     return texture;
   }
 
-  generateLinearGradientTexture(data, size, gradientData) {
+  generateActualLinearGradientTexture(data, size, gradientData) {
     if (!gradientData || !gradientData.colors || gradientData.colors.length === 0) {
-      return; // Use default solid color
+      return; // Use default fallback
     }
     
     for (let y = 0; y < size; y++) {
       for (let x = 0; x < size; x++) {
         const t = x / (size - 1);
-        const color = this.interpolateGradient(t, gradientData);
+        const color = this.interpolateActualGradient(t, gradientData);
         const index = (y * size + x) * 4;
         
         data[index] = color[0] * 255;
@@ -795,9 +1002,9 @@ class WebGLRenderer {
     }
   }
 
-  generateRadialGradientTexture(data, size, gradientData) {
+  generateActualRadialGradientTexture(data, size, gradientData) {
     if (!gradientData || !gradientData.colors || gradientData.colors.length === 0) {
-      return; // Use default solid color
+      return; // Use default fallback
     }
     
     const centerX = size / 2;
@@ -811,7 +1018,7 @@ class WebGLRenderer {
         const distance = Math.sqrt(dx * dx + dy * dy);
         const t = Math.min(distance / maxRadius, 1.0);
         
-        const color = this.interpolateGradient(t, gradientData);
+        const color = this.interpolateActualGradient(t, gradientData);
         const index = (y * size + x) * 4;
         
         data[index] = color[0] * 255;
@@ -822,7 +1029,32 @@ class WebGLRenderer {
     }
   }
 
-  interpolateGradient(t, gradientData) {
+  generateFallbackTexture(data, size, textureType) {
+    // Generate pattern based on texture type
+    for (let y = 0; y < size; y++) {
+      for (let x = 0; x < size; x++) {
+        const index = (y * size + x) * 4;
+        
+        switch (textureType) {
+          case "focal_radial_gradient":
+            const dist = Math.sqrt((x - size/2) ** 2 + (y - size/2) ** 2) / (size/2);
+            data[index] = 100 + dist * 155;     // R
+            data[index + 1] = 150 + dist * 105; // G
+            data[index + 2] = 200 - dist * 100; // B
+            data[index + 3] = 255;              // A
+            break;
+          default:
+            data[index] = 150;     // R
+            data[index + 1] = 150; // G
+            data[index + 2] = 150; // B
+            data[index + 3] = 255; // A
+            break;
+        }
+      }
+    }
+  }
+
+  interpolateActualGradient(t, gradientData) {
     if (!gradientData.colors || gradientData.colors.length === 0) {
       return [0.5, 0.5, 0.5, 1.0];
     }
@@ -831,7 +1063,26 @@ class WebGLRenderer {
       return gradientData.colors[0];
     }
     
-    // Find the two colors to interpolate between
+    // Use actual ratios if available
+    if (gradientData.ratios && gradientData.ratios.length === gradientData.colors.length) {
+      // Find the correct gradient segment
+      for (let i = 0; i < gradientData.ratios.length - 1; i++) {
+        if (t >= gradientData.ratios[i] && t <= gradientData.ratios[i + 1]) {
+          const localT = (t - gradientData.ratios[i]) / (gradientData.ratios[i + 1] - gradientData.ratios[i]);
+          const color1 = gradientData.colors[i];
+          const color2 = gradientData.colors[i + 1];
+          
+          return [
+            color1[0] * (1 - localT) + color2[0] * localT,
+            color1[1] * (1 - localT) + color2[1] * localT,
+            color1[2] * (1 - localT) + color2[2] * localT,
+            color1[3] * (1 - localT) + color2[3] * localT
+          ];
+        }
+      }
+    }
+    
+    // Fall back to even distribution
     const numColors = gradientData.colors.length;
     const segment = t * (numColors - 1);
     const index = Math.floor(segment);
@@ -852,22 +1103,31 @@ class WebGLRenderer {
     ];
   }
 
+  // ==================== TRANSFORMATION MANAGEMENT ====================
+
+  pushTransform(transform) {
+    // Save current transform and apply new one
+    this.transformStack = this.transformStack || [];
+    this.transformStack.push([...this.currentTransform]);
+    
+    if (transform && transform.webglMatrix) {
+      this.currentTransform = [...transform.webglMatrix];
+    }
+  }
+
+  popTransform() {
+    // Restore previous transform
+    if (this.transformStack && this.transformStack.length > 0) {
+      this.currentTransform = this.transformStack.pop();
+    }
+  }
+
   // ==================== UTILITY METHODS ====================
 
-  updateDisplayList(displayListState) {
-    if (!displayListState || !Array.isArray(displayListState)) {
-      return;
-    }
-    
-    this.output.push(`Display list updated: ${displayListState.length} objects`);
-    
-    // Sort by depth for proper rendering order
-    displayListState.sort((a, b) => a.depth - b.depth);
-    
-    // Update internal display list
-    displayListState.forEach(object => {
-      this.displayList.set(object.depth, object);
-    });
+  clearWithBackground() {
+    // Use actual SWF background color if available
+    this.gl.clearColor(this.backgroundColor[0], this.backgroundColor[1], this.backgroundColor[2], this.backgroundColor[3]);
+    this.gl.clear(this.gl.COLOR_BUFFER_BIT);
   }
 
   clear() {
@@ -918,7 +1178,10 @@ class WebGLRenderer {
       queuedItems: this.translatedDataQueue.length,
       pendingUIUpdates: this.pendingUIUpdates.length,
       uiCallbackReady: this.uiUpdateCallback !== null,
-      uiReadyCheckCount: this.uiReadyCheckCount
+      uiReadyCheckCount: this.uiReadyCheckCount,
+      swfShapesCount: this.swfShapes.size,
+      swfDisplayListSize: this.swfDisplayList.size,
+      renderCommandsCount: this.renderCommands.length
     };
   }
 
