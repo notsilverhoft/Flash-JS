@@ -29,6 +29,7 @@
  * - FIXED: Syntax error in canBeParsed variable definition that was breaking script loading
  * - FIXED: Complete canBeParsed variable definition for proper tag type checking
  * - FIXED: Removed dependency between filter button and translation - translation now happens automatically
+ * - FIXED: Display list and shape definition linking for proper WebGL rendering
  */
 
 // Global variables for tag filtering
@@ -498,20 +499,43 @@ function parseTagData(tagData) {
     const shouldDisplay = window.showAllTags || isImportant || isUnknown;
     
     // AUTOMATIC TRANSLATION HAPPENS ALWAYS (not just in content parsing mode)
-    // Parse and translate important tags regardless of display mode to enable WebGL rendering
-    if (canBeParsed && tagHeader.length >= 0 && (isShapeTag || isDisplayTag)) {
+    // Parse and translate ALL parseable tags regardless of display mode to enable WebGL rendering
+    if (canBeParsed && tagHeader.length >= 0) {
       try {
         const contentOffset = offset + tagHeader.headerSize;
         let parsedContent = null;
         
-        if (displayParser && isDisplayTag) {
+        // Parse all tag types for complete SWF reconstruction
+        if (controlParser && isControlTag) {
+          parsedContent = controlParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
+        } else if (displayParser && isDisplayTag) {
           parsedContent = displayParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
+        } else if (assetParser && (isAssetTag || isActionScriptTag)) {
+          parsedContent = assetParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
         } else if (shapeParser && isShapeTag) {
           parsedContent = shapeParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
+        } else if (spriteParser && isSpriteTag) {
+          parsedContent = spriteParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
+        } else if (fontParser && isFontTag) {
+          parsedContent = fontParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
+        } else if (textParser && isTextTag) {
+          parsedContent = textParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
+        } else if (bitmapParser && isBitmapTag) {
+          parsedContent = bitmapParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
+        } else if (soundParser && isSoundTag) {
+          parsedContent = soundParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
+        } else if (buttonParser && isButtonTag) {
+          parsedContent = buttonParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
+        } else if (videoParser && isVideoTag) {
+          parsedContent = videoParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
+        } else if (morphParser && isMorphTag) {
+          parsedContent = morphParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
+        } else if (scalingParser && isScalingTag) {
+          parsedContent = scalingParser.parseTag(tagHeader.type, tagData, contentOffset, tagHeader.length);
         }
         
         if (parsedContent && !parsedContent.error) {
-          // Automatic translator implementation - runs ALWAYS for shape and display tags
+          // Automatic translator implementation - runs ALWAYS for all parseable tags
           let translationResult = null;
           try {
             if (shapeTranslator && isShapeTag && parsedContent.data) {
@@ -521,11 +545,19 @@ function parseTagData(tagData) {
                 
                 // Store translated data for renderer (ALWAYS)
                 if (typeof window.storeTranslatedData === 'function') {
-                  window.storeTranslatedData(translationResult);
+                  // Enhanced storage with proper shape-display linking
+                  const enhancedTranslation = {
+                    ...translationResult,
+                    tagIndex: tagIndex,
+                    tagType: parsedContent.tagType,
+                    isShapeDefinition: true
+                  };
+                  
+                  window.storeTranslatedData(enhancedTranslation);
                   
                   // Only show translation message in content parsing mode
                   if (window.showContentParsing) {
-                    output.push("Translated data stored for rendering");
+                    output.push("Shape definition translated and stored for rendering");
                   }
                 }
               }
@@ -536,11 +568,21 @@ function parseTagData(tagData) {
                 
                 // Store translated data for renderer (ALWAYS)
                 if (typeof window.storeTranslatedData === 'function') {
-                  window.storeTranslatedData(translationResult);
+                  // Enhanced storage with proper shape-display linking
+                  const enhancedTranslation = {
+                    ...translationResult,
+                    tagIndex: tagIndex,
+                    tagType: parsedContent.tagType,
+                    isDisplayCommand: true,
+                    characterId: parsedContent.data.characterId,
+                    depth: parsedContent.data.depth
+                  };
+                  
+                  window.storeTranslatedData(enhancedTranslation);
                   
                   // Only show translation message in content parsing mode
                   if (window.showContentParsing) {
-                    output.push("Translated data stored for rendering");
+                    output.push("Display command translated and stored for rendering");
                   }
                 }
               }
@@ -601,13 +643,15 @@ function parseTagData(tagData) {
               output.push(`ERROR: ${parsedContent.error}`);
             }
             
-            // Show translation results for shape and display tags (already processed above)
-            if ((isShapeTag || isDisplayTag) && !parsedContent.error) {
+            // Show translation results for all tags (already processed above)
+            if (!parsedContent.error) {
               output.push("\n--- AUTOMATIC TRANSLATION ---");
               if (isShapeTag) {
-                output.push("Shape data translated to WebGL format");
+                output.push("Shape definition translated to WebGL format");
+              } else if (isDisplayTag) {
+                output.push("Display command translated to WebGL format");
               } else {
-                output.push("Display data translated to WebGL format");
+                output.push("Tag data processed for WebGL pipeline");
               }
             }
             
