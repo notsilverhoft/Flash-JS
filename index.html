@@ -824,16 +824,24 @@
           const arrayBuffer = await file.arrayBuffer();
           window.currentFileBuffer = arrayBuffer;
           
-          // Clear previous translated data and reset renderer
+          // FIXED: Clear previous translated data and properly reset renderer using its API
           window.translatedDataStorage = null;
-          if (window.webglRenderer) {
+          if (window.webglRenderer && typeof window.webglRenderer.resetForNewSWF === 'function') {
+            // Use the proper reset method from WebGLRenderer
+            window.webglRenderer.resetForNewSWF();
+          } else if (window.webglRenderer) {
+            // Fallback if method doesn't exist - clear manually but don't touch button
             window.webglRenderer.clear();
-            // Reset counters in renderer
-            window.webglRenderer.totalTranslatedItems = 0;
-            window.webglRenderer.translatedDataQueue = [];
+            if (window.webglRenderer.displayList) {
+              window.webglRenderer.displayList.clear();
+            }
+            if (window.webglRenderer.shapeCache) {
+              window.webglRenderer.shapeCache.clear();
+            }
           }
-          renderButton.disabled = true;
-          renderButton.textContent = 'No Translated Data';
+          
+          // FIXED: Don't manually reset render button - let the renderer handle it
+          // The resetForNewSWF() method will properly reset the button state
           
           const parsedInfo = parseSWFSignature(arrayBuffer);
           const tagInfo = parseSWFTags(arrayBuffer);
